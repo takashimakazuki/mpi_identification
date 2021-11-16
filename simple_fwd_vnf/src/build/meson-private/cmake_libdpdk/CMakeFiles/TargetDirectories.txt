@@ -1,0 +1,2 @@
+/app/simple_fwd_vnf/src/build/meson-private/cmake_libdpdk/CMakeFiles/rebuild_cache.dir
+/app/simple_fwd_vnf/src/build/meson-private/cmake_libdpdk/CMakeFiles/edit_cache.dir
