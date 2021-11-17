@@ -154,7 +154,6 @@ simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
 		struct rte_tcp_hdr *tcphdr =
 			(struct rte_tcp_hdr *)(data + l4_off);
 
-		printf("[DEBUG LOG] src:%x:%u -> dst:%x:%u\n", iphdr->src_addr, (unsigned int)tcphdr->src_port, iphdr->dst_addr, (unsigned int)tcphdr->dst_port);
 		l7_off = l4_off + ((tcphdr->data_off & 0xf0) >> 2);
 		if (l7_off > len)
 			return -1;
@@ -286,11 +285,11 @@ int simple_fwd_parse_packet(uint8_t *data, int len,
 	if (simple_fwd_parse_pkt_format(data, len, true, &pinfo->outer))
 		return -1;
 	
-	// TCP packet出力
-	if (pinfo->outer.l3_type == IPV4 && pinfo->outer.l4_type == IPPROTO_TCP)
-	{
-		printf("[DEBUG LOG] TCP PACKET PAYLOAD->%s\n", pinfo->outer.l4);
-	}
+	// // TCP packet出力
+	// if (pinfo->outer.l3_type == IPV4 && pinfo->outer.l4_type == IPPROTO_TCP)
+	// {
+	// 	printf("[DEBUG LOG] TCP PACKET PAYLOAD->%s\n", pinfo->outer.l4);
+	// }
 
 
 	// これ以降の部分はパケットトレーシングには不要か

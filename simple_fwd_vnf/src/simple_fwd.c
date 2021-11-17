@@ -43,6 +43,7 @@
 #include <doca_log.h>
 #include <doca_log.h>
 #include "flow_offload.h"
+#include "utils.h"
 #include "app_vnf.h"
 #include "simple_fwd_vnf.h"
 #include "simple_fwd_ft.h"
@@ -98,7 +99,8 @@ static void simple_fwd_process_offload(struct rte_mbuf *mbuf)
 		VNF_PKT_LEN(mbuf), &pinfo))
 		return;
 	pinfo.orig_data = mbuf;
-	printf("[DEBUG LOG] %p\n", pinfo.outer.l4);
+	// DEBUG LOG ヘッダ情報を表示
+	print_header_info(mbuf, false, true, true);
 	pinfo.orig_port_id = mbuf->port;
 	pinfo.rss_hash = mbuf->hash.rss;
 	if (pinfo.outer.l3_type != IPV4)
@@ -171,6 +173,8 @@ static int simple_fwd_parse_uint32(const char *uint32_value)
 	char *end = NULL;
 	uint32_t value;
 
+	// convert a string to an unsigned long intager
+	// 文字列->Long Int
 	value = strtoul(uint32_value, &end, 10);
 	if ((uint32_value[0] == '\0') || (end == NULL) || (*end != '\0'))
 		return 0;

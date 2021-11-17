@@ -108,3 +108,5 @@ print_l4_header(const struct rte_mbuf *packet)
 		DOCA_LOG_DBG("Unsupported L4 protocol!");
 	}
 }
+
+// void print_l4_payload_nbytes(struct *simple_fwd_pkt_info, int n);

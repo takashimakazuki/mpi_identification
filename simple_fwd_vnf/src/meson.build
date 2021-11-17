@@ -57,6 +57,7 @@ sources = [
 	'simple_fwd_vnf.c',
 	'simple_fwd.c',
 	'./../../common/src/flow_offload.c',
+	'./../../common/src/utils.c',
 ]
 
 common_dir = include_directories('./../../common/src')
