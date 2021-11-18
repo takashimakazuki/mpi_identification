@@ -37,6 +37,4 @@ void print_l4_header(const struct rte_mbuf *packet);
 
 void set_time_stamp(struct tm *timeinfo);
 
-// void print_l4_payload_nbytes(struct *simple_fwd_pkt_info, int n);
-
 #endif

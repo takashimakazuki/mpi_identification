@@ -285,13 +285,6 @@ int simple_fwd_parse_packet(uint8_t *data, int len,
 	if (simple_fwd_parse_pkt_format(data, len, true, &pinfo->outer))
 		return -1;
 	
-	// // TCP packet出力
-	// if (pinfo->outer.l3_type == IPV4 && pinfo->outer.l4_type == IPPROTO_TCP)
-	// {
-	// 	printf("[DEBUG LOG] TCP PACKET PAYLOAD->%s\n", pinfo->outer.l4);
-	// }
-
-
 	// これ以降の部分はパケットトレーシングには不要か
 	off = simple_fwd_parse_is_tun(pinfo);
 	if (pinfo->tun_type == DOCA_FLOW_TUN_NONE || off < 0)

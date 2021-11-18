@@ -72,6 +72,25 @@ struct vnf_per_core_params {
 };
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
+// L4(TCP)パケットペイロードの表示
+void print_l4_payload_nbytes(uint8_t *l4, int n)
+{
+	uint8_t *l4_payload = l4 + 20;  // TCPヘッダの20bytes
+	char str[(n * 3) + 1];
+	memset( str, 0, (n*3+1)*sizeof(char) );
+
+	// DEBUG LOG ヘッダ情報を表示
+	DOCA_LOG_DBG("pinfo address: %p, %x", &pinfo, &pinfo);
+	DOCA_LOG_DBG("print_l4_payload_nbytes start");
+	DOCA_LOG_DBG("l4 address %p", l4);
+
+	for (int i = 0; i < n; i++) {
+		sprintf(&str[i * 3], "%02x ", *(l4_payload + i));
+	}
+
+	DOCA_LOG_DBG("[Dump %dbyte] %s\n", n, str);
+}
+
 /*this is very bad way to do it, need to set start time and use rte_*/
 static inline uint64_t simple_fwd_get_time_usec(void)
 {
@@ -99,13 +118,14 @@ static void simple_fwd_process_offload(struct rte_mbuf *mbuf)
 		VNF_PKT_LEN(mbuf), &pinfo))
 		return;
 	pinfo.orig_data = mbuf;
-	// DEBUG LOG ヘッダ情報を表示
 	print_header_info(mbuf, false, true, true);
 	pinfo.orig_port_id = mbuf->port;
 	pinfo.rss_hash = mbuf->hash.rss;
 	if (pinfo.outer.l3_type != IPV4)
 		return;
 	vnf->vnf_process_pkt(&pinfo);
+	// MPIのペイロードを表示
+	print_l4_payload_nbytes(pinfo.outer.l4, 50);
 	vnf_adjust_mbuf(mbuf, &pinfo);
 }
 
