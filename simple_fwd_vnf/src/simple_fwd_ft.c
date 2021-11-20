@@ -22,10 +22,12 @@ DOCA_LOG_REGISTER(SIMPLE_FWD_FT);
 
 #define FT_TIMEOUT_SEC 60
 static int _ft_destroy_flow(struct simple_fwd_ft *ft,
-			    struct simple_fwd_ft_key *key);
+							struct simple_fwd_ft_key *key);
 
-struct simple_fwd_ft_entry {
-	LIST_ENTRY(simple_fwd_ft_entry) next; /* entry pointers in the list. */
+struct simple_fwd_ft_entry
+{
+	LIST_ENTRY(simple_fwd_ft_entry)
+	next; /* entry pointers in the list. */
 	struct simple_fwd_ft_key key;
 	uint64_t expiration;
 	uint64_t last_counter;
@@ -37,26 +39,30 @@ struct simple_fwd_ft_entry {
 
 LIST_HEAD(simple_fwd_ft_entry_head, simple_fwd_ft_entry);
 
-struct simple_fwd_ft_bucket {
+struct simple_fwd_ft_bucket
+{
 	struct simple_fwd_ft_entry_head head;
 	rte_spinlock_t lock;
 };
 
-struct simple_fwd_ft_stats {
+struct simple_fwd_ft_stats
+{
 	uint64_t add;
 	uint64_t rm;
 
 	uint64_t memuse;
 };
 
-struct simple_fwd_ft_cfg {
+struct simple_fwd_ft_cfg
+{
 	uint32_t size;
 	uint32_t mask;
 	uint32_t user_data_size;
 	uint32_t entry_size;
 };
 
-struct simple_fwd_ft {
+struct simple_fwd_ft
+{
 	struct simple_fwd_ft_cfg cfg;
 	struct simple_fwd_ft_stats stats;
 
@@ -81,10 +87,11 @@ simple_fwd_ft_update_counter(struct simple_fwd_ft_entry *e)
 {
 	struct simple_fwd_pipe_entry *entry =
 		(struct simple_fwd_pipe_entry *)&e->user_ctx.data[0];
-	struct doca_flow_query query_stats = { 0 };
+	struct doca_flow_query query_stats = {0};
 	bool update = 0;
 
-	if (!doca_flow_query(entry->hw_entry, &query_stats)) {
+	if (!doca_flow_query(entry->hw_entry, &query_stats))
+	{
 		update = !!(query_stats.total_pkts - e->last_counter);
 		e->last_counter = query_stats.total_pkts;
 	}
@@ -99,11 +106,14 @@ simple_fwd_ft_aging_ft_entry(struct simple_fwd_ft *ft, unsigned int i)
 	bool still_aging = false;
 	uint64_t t = rte_rdtsc();
 
-	if (rte_spinlock_trylock(&ft->buckets[i].lock)) {
+	if (rte_spinlock_trylock(&ft->buckets[i].lock))
+	{
 		first = &ft->buckets[i].head;
-		LIST_FOREACH(node, first, next) {
+		LIST_FOREACH(node, first, next)
+		{
 			if (node->expiration < t &&
-					!simple_fwd_ft_update_counter(node)) {
+				!simple_fwd_ft_update_counter(node))
+			{
 				DOCA_LOG_DBG("aging removing flow");
 				_ft_destroy_flow(ft, &node->key);
 				still_aging = true;
@@ -115,26 +125,29 @@ simple_fwd_ft_aging_ft_entry(struct simple_fwd_ft *ft, unsigned int i)
 	return still_aging;
 }
 
-
-static void*
+static void *
 simple_fwd_ft_aging_main(void *void_ptr)
 {
 	struct simple_fwd_ft *ft = (struct simple_fwd_ft *)void_ptr;
 	bool next = false;
 	unsigned int i;
 
-	if (!ft) {
+	if (!ft)
+	{
 		DOCA_LOG_CRIT("no ft, abort aging\n");
 		return NULL;
 	}
-	while (!ft->stop_aging_thread) {
+	while (!ft->stop_aging_thread)
+	{
 		if ((int)(ft->stats.add - ft->stats.rm) == 0)
 			continue;
 		DOCA_LOG_DBG("total entries: %d",
-			(int)(ft->stats.add - ft->stats.rm));
+					 (int)(ft->stats.add - ft->stats.rm));
 		DOCA_LOG_DBG("total adds   : %d", (int)(ft->stats.add));
-		for (i = 0; i < ft->cfg.size; i++) {
-			do {
+		for (i = 0; i < ft->cfg.size; i++)
+		{
+			do
+			{
 				next = simple_fwd_ft_aging_ft_entry(ft, i);
 			} while (next);
 		}
@@ -158,9 +171,8 @@ simple_fwd_ft_aging_thread_start(struct simple_fwd_ft *ft)
 		fprintf(stderr, "Error creating thread\n");
 }
 
-int
-simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *pinfo,
-		       struct simple_fwd_ft_key *key)
+int simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *pinfo,
+						   struct simple_fwd_ft_key *key)
 {
 	bool inner = false;
 
@@ -180,16 +192,16 @@ simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *pinfo,
 	key->port_2 = simple_fwd_ft_key_get_dst_port(inner, pinfo);
 
 	/* in case of tunnel , use tun tyoe and vni */
-	if (pinfo->tun_type != DOCA_FLOW_TUN_NONE) {
+	if (pinfo->tun_type != DOCA_FLOW_TUN_NONE)
+	{
 		key->tun_type = pinfo->tun_type;
 		key->vni = pinfo->tun.vni;
 	}
 	return 0;
 }
 
-bool
-simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
-			struct simple_fwd_ft_key *key2)
+bool simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
+							 struct simple_fwd_ft_key *key2)
 {
 	uint64_t *keyp1 = (uint64_t *)key1;
 	uint64_t *keyp2 = (uint64_t *)key2;
@@ -202,8 +214,8 @@ simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
 
 struct simple_fwd_ft *
 simple_fwd_ft_create(int size, uint32_t user_data_size,
-	       void (*simple_fwd_aging_cb)(struct simple_fwd_ft_user_ctx *ctx),
-	       void (*simple_fwd_aging_hw_cb)(void))
+					 void (*simple_fwd_aging_cb)(struct simple_fwd_ft_user_ctx *ctx),
+					 void (*simple_fwd_aging_hw_cb)(void))
 {
 	struct simple_fwd_ft *ft;
 	uint32_t act_size;
@@ -217,18 +229,17 @@ simple_fwd_ft_create(int size, uint32_t user_data_size,
 		act_size = rte_align32pow2(size);
 	else
 		act_size = size;
-	alloc_size = sizeof(struct simple_fwd_ft)
-		+ sizeof(struct simple_fwd_ft_bucket) * act_size;
+	alloc_size = sizeof(struct simple_fwd_ft) + sizeof(struct simple_fwd_ft_bucket) * act_size;
 	DOCA_LOG_DBG("alloc size =%d", alloc_size);
 
 	ft = malloc(alloc_size * 2);
-	if (ft == NULL) {
+	if (ft == NULL)
+	{
 		DOCA_LOG_CRIT("no mem");
 		return NULL;
 	}
 	memset(ft, 0, alloc_size);
-	ft->cfg.entry_size = sizeof(struct simple_fwd_ft_entry)
-		+ user_data_size;
+	ft->cfg.entry_size = sizeof(struct simple_fwd_ft_entry) + user_data_size;
 	ft->cfg.user_data_size = user_data_size;
 	ft->cfg.size = act_size;
 	ft->cfg.mask = act_size - 1;
@@ -236,16 +247,16 @@ simple_fwd_ft_create(int size, uint32_t user_data_size,
 	ft->simple_fwd_aging_hw_cb = simple_fwd_aging_hw_cb;
 
 	DOCA_LOG_DBG("FT create size=%d, user_data_size=%d", size,
-		     user_data_size);
+				 user_data_size);
 	for (i = 0; i < ft->cfg.size; i++)
 		rte_spinlock_init(&ft->buckets[i].lock);
 	simple_fwd_ft_aging_thread_start(ft);
 	return ft;
 }
 
-static struct simple_fwd_ft_entry*
+static struct simple_fwd_ft_entry *
 _simple_fwd_ft_find(struct simple_fwd_ft *ft,
-		    struct simple_fwd_ft_key *key)
+					struct simple_fwd_ft_key *key)
 {
 	uint32_t idx;
 	struct simple_fwd_ft_entry_head *first;
@@ -254,8 +265,10 @@ _simple_fwd_ft_find(struct simple_fwd_ft *ft,
 	idx = key->rss_hash & ft->cfg.mask;
 	DOCA_LOG_DBG("looking for index%d", idx);
 	first = &ft->buckets[idx].head;
-	LIST_FOREACH(node, first, next) {
-		if (simple_fwd_ft_key_equal(&node->key, key)) {
+	LIST_FOREACH(node, first, next)
+	{
+		if (simple_fwd_ft_key_equal(&node->key, key))
+		{
 			simple_fwd_ft_update_expiration(node);
 			return node;
 		}
@@ -263,10 +276,9 @@ _simple_fwd_ft_find(struct simple_fwd_ft *ft,
 	return NULL;
 }
 
-bool
-simple_fwd_ft_find(struct simple_fwd_ft *ft,
-		   struct simple_fwd_pkt_info *pinfo,
-		   struct simple_fwd_ft_user_ctx **ctx)
+bool simple_fwd_ft_find(struct simple_fwd_ft *ft,
+						struct simple_fwd_pkt_info *pinfo,
+						struct simple_fwd_ft_user_ctx **ctx)
 {
 	struct simple_fwd_ft_entry *fe;
 	struct simple_fwd_ft_key key = {0};
@@ -282,10 +294,9 @@ simple_fwd_ft_find(struct simple_fwd_ft *ft,
 	return true;
 }
 
-bool
-simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
-		      struct simple_fwd_pkt_info *pinfo,
-		      struct simple_fwd_ft_user_ctx **ctx)
+bool simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
+						   struct simple_fwd_pkt_info *pinfo,
+						   struct simple_fwd_ft_user_ctx **ctx)
 {
 	int idx;
 	struct simple_fwd_ft_key key = {0};
@@ -295,13 +306,15 @@ simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
 	if (!ft)
 		return false;
 
-	if (simple_fwd_ft_key_fill(pinfo, &key)) {
+	if (simple_fwd_ft_key_fill(pinfo, &key))
+	{
 		DOCA_LOG_DBG("failed on key");
 		return false;
 	}
 
 	new_e = malloc(ft->cfg.entry_size);
-	if (new_e == NULL) {
+	if (new_e == NULL)
+	{
 		DOCA_LOG_WARN("oom");
 		return false;
 	}
@@ -312,7 +325,7 @@ simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
 	*ctx = &new_e->user_ctx;
 
 	DOCA_LOG_DBG("defined new flow %llu",
-		     (unsigned int long long)new_e->user_ctx.fid);
+				 (unsigned int long long)new_e->user_ctx.fid);
 	memcpy(&new_e->key, &key, sizeof(struct simple_fwd_ft_key));
 	idx = pinfo->rss_hash & ft->cfg.mask;
 	first = &ft->buckets[idx].head;
@@ -326,7 +339,7 @@ simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
 
 static int
 _ft_destroy_flow(struct simple_fwd_ft *ft,
-		 struct simple_fwd_ft_key *key)
+				 struct simple_fwd_ft_key *key)
 {
 	struct simple_fwd_ft_entry *f;
 
@@ -334,7 +347,8 @@ _ft_destroy_flow(struct simple_fwd_ft *ft,
 		return -1;
 
 	f = _simple_fwd_ft_find(ft, key);
-	if (f) {
+	if (f)
+	{
 		LIST_REMOVE(f, next);
 		ft->simple_fwd_aging_cb(&f->user_ctx);
 		free(f);
@@ -343,25 +357,26 @@ _ft_destroy_flow(struct simple_fwd_ft *ft,
 	return 0;
 }
 
-int
-simple_fwd_ft_destroy_flow(struct simple_fwd_ft *ft,
-			   struct simple_fwd_ft_key *key)
+int simple_fwd_ft_destroy_flow(struct simple_fwd_ft *ft,
+							   struct simple_fwd_ft_key *key)
 {
 	return _ft_destroy_flow(ft, key);
 }
 
-void
-simple_fwd_ft_destroy(struct simple_fwd_ft *ft)
+void simple_fwd_ft_destroy(struct simple_fwd_ft *ft)
 {
 	uint32_t i;
 	struct simple_fwd_ft_entry_head *first;
 	struct simple_fwd_ft_entry *node;
 
 	ft->stop_aging_thread = true;
-	for (i = 0; i < ft->cfg.size; i++) {
-		do {
+	for (i = 0; i < ft->cfg.size; i++)
+	{
+		do
+		{
 			first = &ft->buckets[i].head;
-			LIST_FOREACH(node, first, next) {
+			LIST_FOREACH(node, first, next)
+			{
 				LIST_REMOVE(node, next);
 				_ft_destroy_flow(ft, &node->key);
 				continue;

@@ -23,21 +23,23 @@
 #define SIMPLE_FWD_PORTS (2)
 #define SIMPLE_FWD_MAX_FLOWS (8096)
 
-struct simple_fwd_app {
+struct simple_fwd_app
+{
 	struct simple_fwd_ft *ft;
 	struct doca_flow_port *port[SIMPLE_FWD_PORTS];
 	struct doca_flow_pipe *pipe_vxlan[SIMPLE_FWD_PORTS];
 	struct doca_flow_pipe *pipe_gre[SIMPLE_FWD_PORTS];
 };
 
-struct simple_fwd_pipe_entry {
+struct simple_fwd_pipe_entry
+{
 	bool is_hw;
 	uint64_t total_pkts;
 	uint64_t total_bytes;
 	struct doca_flow_pipe_entry *hw_entry;
 };
 
-struct app_vnf*
+struct app_vnf *
 simple_fwd_get_doca_vnf(void);
 
 #endif

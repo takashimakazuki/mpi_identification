@@ -21,7 +21,8 @@
 #define IPV4 (4)
 #define IPV6 (6)
 
-struct simple_fwd_pkt_format {
+struct simple_fwd_pkt_format
+{
 
 	// 各レイヤデータの先頭
 	uint8_t *l2;
@@ -35,13 +36,16 @@ struct simple_fwd_pkt_format {
 	uint8_t *l7;
 };
 
-struct simple_fwd_pkt_tun_format {
+struct simple_fwd_pkt_tun_format
+{
 	doca_be32_t vni;
 	bool l2;
 	doca_be16_t proto;
 
-	union {
-		struct {
+	union
+	{
+		struct
+		{
 			uint8_t gtp_msg_type;
 			uint8_t gtp_flags;
 		};
@@ -53,7 +57,8 @@ struct simple_fwd_pkt_tun_format {
  *  points to relevant point in packet and
  *  classify it.
  */
-struct simple_fwd_pkt_info {
+struct simple_fwd_pkt_info
+{
 	void *orig_data;
 	uint16_t orig_port_id;
 	uint32_t rss_hash;
@@ -65,7 +70,8 @@ struct simple_fwd_pkt_info {
 	int len;
 };
 
-struct simple_fwd_ft_key {
+struct simple_fwd_ft_key
+{
 	doca_be32_t ipv4_1;
 	doca_be32_t ipv4_2;
 	doca_be16_t port_1;
@@ -77,9 +83,8 @@ struct simple_fwd_ft_key {
 	uint32_t rss_hash;
 };
 
-int
-simple_fwd_parse_packet(uint8_t *data, int len,
-			struct simple_fwd_pkt_info *pinfo);
+int simple_fwd_parse_packet(uint8_t *data, int len,
+							struct simple_fwd_pkt_info *pinfo);
 doca_be32_t
 simple_fwd_pinfo_outer_ipv4_dst(struct simple_fwd_pkt_info *pinfo);
 doca_be32_t
@@ -96,7 +101,6 @@ doca_be16_t
 simple_fwd_pinfo_outer_src_port(struct simple_fwd_pkt_info *pinfo);
 doca_be16_t
 simple_fwd_pinfo_outer_dst_port(struct simple_fwd_pkt_info *pinfo);
-void
-simple_fwd_pinfo_decap(struct simple_fwd_pkt_info *pinfo);
+void simple_fwd_pinfo_decap(struct simple_fwd_pkt_info *pinfo);
 
 #endif

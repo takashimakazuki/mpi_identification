@@ -23,23 +23,24 @@
 struct simple_fwd_ft;
 struct simple_fwd_ft_key;
 
-struct simple_fwd_ft_user_ctx {
+struct simple_fwd_ft_user_ctx
+{
 	uint32_t fid;
 	uint8_t data[0];
 };
 
-#define simple_fwd_ft_key_get_ipv4_src(inner, pinfo)	\
-	(inner ? simple_fwd_pinfo_inner_ipv4_src(pinfo)		\
-	       : simple_fwd_pinfo_outer_ipv4_src(pinfo))
-#define simple_fwd_ft_key_get_ipv4_dst(inner, pinfo)	\
-	(inner ? simple_fwd_pinfo_inner_ipv4_dst(pinfo)		\
-	       : simple_fwd_pinfo_outer_ipv4_dst(pinfo))
-#define simple_fwd_ft_key_get_src_port(inner, pinfo)	\
-	(inner ? simple_fwd_pinfo_inner_src_port(pinfo)		\
-	       : simple_fwd_pinfo_outer_src_port(pinfo))
-#define simple_fwd_ft_key_get_dst_port(inner, pinfo)	\
-	(inner ? simple_fwd_pinfo_inner_dst_port(pinfo)		\
-	       : simple_fwd_pinfo_outer_dst_port(pinfo))
+#define simple_fwd_ft_key_get_ipv4_src(inner, pinfo) \
+	(inner ? simple_fwd_pinfo_inner_ipv4_src(pinfo)  \
+		   : simple_fwd_pinfo_outer_ipv4_src(pinfo))
+#define simple_fwd_ft_key_get_ipv4_dst(inner, pinfo) \
+	(inner ? simple_fwd_pinfo_inner_ipv4_dst(pinfo)  \
+		   : simple_fwd_pinfo_outer_ipv4_dst(pinfo))
+#define simple_fwd_ft_key_get_src_port(inner, pinfo) \
+	(inner ? simple_fwd_pinfo_inner_src_port(pinfo)  \
+		   : simple_fwd_pinfo_outer_src_port(pinfo))
+#define simple_fwd_ft_key_get_dst_port(inner, pinfo) \
+	(inner ? simple_fwd_pinfo_inner_dst_port(pinfo)  \
+		   : simple_fwd_pinfo_outer_dst_port(pinfo))
 
 /**
  * @brief - build table key according to parsed packet.
@@ -49,9 +50,8 @@ struct simple_fwd_ft_user_ctx {
  *
  * @return 0 on success
  */
-int
-simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *m,
-		       struct simple_fwd_ft_key *key);
+int simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *m,
+						   struct simple_fwd_ft_key *key);
 
 /**
  * @brief - compare keys
@@ -61,9 +61,8 @@ simple_fwd_ft_key_fill(struct simple_fwd_pkt_info *m,
  *
  * @return true if keys are equal.
  */
-bool
-simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
-			struct simple_fwd_ft_key *key2);
+bool simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
+							 struct simple_fwd_ft_key *key2);
 
 /**
  * @brief - create new flow table
@@ -75,24 +74,20 @@ simple_fwd_ft_key_equal(struct simple_fwd_ft_key *key1,
  */
 struct simple_fwd_ft *
 simple_fwd_ft_create(int size, uint32_t user_data_size,
-	void (*simple_fwd_aging_cb)(struct simple_fwd_ft_user_ctx *ctx),
-	void (*simple_fwd_aging_hw_cb)(void));
+					 void (*simple_fwd_aging_cb)(struct simple_fwd_ft_user_ctx *ctx),
+					 void (*simple_fwd_aging_hw_cb)(void));
 
-void
-simple_fwd_ft_destroy(struct simple_fwd_ft *ft);
+void simple_fwd_ft_destroy(struct simple_fwd_ft *ft);
 
-bool
-simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
-		      struct simple_fwd_pkt_info *pinfo,
-		      struct simple_fwd_ft_user_ctx **ctx);
+bool simple_fwd_ft_add_new(struct simple_fwd_ft *ft,
+						   struct simple_fwd_pkt_info *pinfo,
+						   struct simple_fwd_ft_user_ctx **ctx);
 
-bool
-simple_fwd_ft_find(struct simple_fwd_ft *ft,
-		   struct simple_fwd_pkt_info *pinfo,
-		   struct simple_fwd_ft_user_ctx **ctx);
+bool simple_fwd_ft_find(struct simple_fwd_ft *ft,
+						struct simple_fwd_pkt_info *pinfo,
+						struct simple_fwd_ft_user_ctx **ctx);
 
-int
-simple_fwd_ft_destroy_flow(struct simple_fwd_ft *ft,
-			   struct simple_fwd_ft_key *key);
+int simple_fwd_ft_destroy_flow(struct simple_fwd_ft *ft,
+							   struct simple_fwd_ft_key *key);
 
 #endif
