@@ -15,7 +15,6 @@
 // sudo ./doca_simple_fwd_vnf -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=4 --stats_timer=2 --log_level=8
 
 #include <stdio.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -32,6 +31,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <netinet/tcp.h>
+#include <netinet/ip.h>
 
 #include <rte_eal.h>
 #include <rte_common.h>
@@ -52,6 +52,10 @@
 #include "simple_fwd_vnf.h"
 #include "simple_fwd_ft.h"
 #include "simple_fwd_port.h"
+
+#include "mpi.h"
+#include "mpidpre.h"
+#include "mpidpkt.h"
 
 DOCA_LOG_REGISTER(SIMPLE_FWD);
 
@@ -78,28 +82,98 @@ struct vnf_per_core_params
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
 // L4(TCP)パケットペイロードの表示
-void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo, int n)
+void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 {
-	// const MPIDI_CH3_Pkt_t *pkt;
-	uint8_t *l4_payload = pinfo->outer.l4 + 20; // TCPヘッダの20bytes
+	const MPIDI_CH3_Pkt_t *pkt;
 	struct tcphdr *tcph = (struct tcphdr *)pinfo->outer.l4;
+	struct iphdr *iph = (struct iphdr *)pinfo->outer.l3;
+	uint8_t *l4_payload = pinfo->outer.l4 + tcph->doff * 4; // TCPペイロードの先頭ポインタ
+	int pkt_len;
 
-	char str[(n * 3) + 1];
-	memset(str, 0, (n * 3 + 1) * sizeof(char));
+	// TCPペイロードのデータ長(bytes)
+	pkt_len = ntohs(iph->tot_len) - iph->ihl * 4 - tcph->doff * 4;
+
+	// TCPパケットペイロードがない場合
+	if (pkt_len <= 0)
+	{
+		return;
+	}
+
+	// MPIヘッダ長の長さに足りないためMPIパケットではない
+	if (pkt_len < sizeof(MPIDI_CH3_Pkt_t))
+	{
+		return;
+	}
+
+	// 16進数+スペースで表示する文字列
+	char str[(pkt_len * 3) + 1];
+	memset(str, 0, (pkt_len * 3 + 1) * sizeof(char));
 
 	// DEBUG LOG ヘッダ情報を表示
-	DOCA_LOG_DBG("pinfo address: %p, %x", pinfo, pinfo);
+	DOCA_LOG_DBG("===PACKET===");
+	DOCA_LOG_DBG("L3 protocol %x", iph->protocol);
+	DOCA_LOG_DBG("L3 version %x", iph->version);
+	DOCA_LOG_DBG("L3 IHL %x", iph->ihl);
+	DOCA_LOG_DBG("L3 TOTAL LENGTH %d", ntohs(iph->tot_len));
+	for (int i = 0; i < pkt_len; i++)
+	{
+		sprintf(&str[i * 3], "%02x ", *(l4_payload + i));
+	}
+
+	DOCA_LOG_DBG("[TCP Payload(%d bytes)] %s", pkt_len, str);
 
 	if (
 		(ntohs(tcph->source) >= 50000 && ntohs(tcph->source) <= 50100) ||
 		(ntohs(tcph->dest) >= 50000 && ntohs(tcph->dest) <= 50100))
 	{
-		for (int i = 0; i < n; i++)
+		// 型キャスト
+		pkt = (MPIDI_CH3_Pkt_t *)l4_payload;
+
+		DOCA_LOG_DBG("MPICH packet type %d", (int)pkt->type);
+
+		switch (pkt->type)
 		{
-			sprintf(&str[i * 3], "%02x ", *(l4_payload + i));
+		case MPIDI_CH3_PKT_EAGERSHORT_SEND:
+		{
+			MPIDI_CH3_Pkt_eagershort_send_t *eagershort_pkt = &pkt->eagershort_send;
+			DOCA_LOG_DBG("MPICH packet type %d (EAGERSHORT_SEND)", pkt->type);
+			DOCA_LOG_DBG("MPICH match->tag %d", eagershort_pkt->match.parts.tag);
+			DOCA_LOG_DBG("MPICH match->rank %d", eagershort_pkt->match.parts.rank);
+			DOCA_LOG_DBG("MPICH match->context_id %d", eagershort_pkt->match.parts.context_id);
+			DOCA_LOG_DBG("MPICH data_sz %d", eagershort_pkt->data_sz);
+			write(STDERR_FILENO, eagershort_pkt->data, eagershort_pkt->data_sz);
+			break;
+		}
+		case MPIDI_CH3_PKT_RNDV_REQ_TO_SEND:
+		{
+			DOCA_LOG_DBG("MPICH packet type %d (RNDV_REQ_TO_SEND)", pkt->type);
+			MPIDI_CH3_Pkt_rndv_req_to_send_t *rndv_req_to_send = &pkt->rndv_req_to_send;
+			break;
+		}
+		case MPIDI_CH3_PKT_RNDV_SEND:
+		{
+			DOCA_LOG_DBG("MPICH packet type %d (RNDV_SEND)", pkt->type);
+			MPIDI_CH3_Pkt_rndv_send_t *rndv_to_send = &pkt->rndv_send;
+			DOCA_LOG_DBG("MPICH receiver_req_id %d", (int)rndv_to_send->receiver_req_id);
+			break;
+		}
+		case MPIDI_CH3_PKT_EAGER_SEND:
+		{
+			DOCA_LOG_DBG("MPICH packet type %d (EAGER_SEND)", pkt->type);
+			MPIDI_CH3_Pkt_eager_send_t *eager_send = &pkt->eager_send;
+			DOCA_LOG_DBG("MPICH tag %d", eager_send->match.parts.tag);
+			DOCA_LOG_DBG("MPICH context_id %d", eager_send->match.parts.context_id);
+			break;
 		}
 
-		DOCA_LOG_DBG("[Dump %dbyte] %s", n, str);
+		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
+		{
+			DOCA_LOG_DBG("MPICH packet type %d (EAGER_SYNC_SEND)", pkt->type);
+			MPIDI_CH3_Pkt_eager_sync_send_t *eager_sync_send = &pkt->eager_sync_send;
+			DOCA_LOG_DBG("MPICH tag %d", (int32_t)eager_sync_send->match.parts.tag);
+			DOCA_LOG_DBG("MPICH context_id %d", (int32_t)eager_sync_send->match.parts.context_id);
+		}
+		}
 	}
 	DOCA_LOG_DBG("\n");
 }
@@ -138,7 +212,7 @@ static void simple_fwd_process_offload(struct rte_mbuf *mbuf)
 	vnf->vnf_process_pkt(&pinfo);
 	// MPIのペイロードを表示
 	print_header_info(mbuf, false, true, true);
-	print_l4_payload_nbytes(&pinfo, 50);
+	print_l4_payload_nbytes(&pinfo);
 
 	vnf_adjust_mbuf(mbuf, &pinfo);
 }
@@ -312,6 +386,32 @@ adjust_queue_by_fwd(uint16_t nb_queues)
 	return nb_queues;
 }
 
+void printPacketTypeEnum()
+{
+	DOCA_LOG_DBG("+=====================================+");
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGER_SEND: %d", MPIDI_CH3_PKT_EAGER_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGERSHORT_SEND: %d", MPIDI_CH3_PKT_EAGERSHORT_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGER_SYNC_SEND: %d", MPIDI_CH3_PKT_EAGER_SYNC_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_READY_SEND: %d", MPIDI_CH3_PKT_READY_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_REQ_TO_SEND: %d", MPIDI_CH3_PKT_RNDV_REQ_TO_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_CLR_TO_SEND: %d", MPIDI_CH3_PKT_RNDV_CLR_TO_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_SEND: %d", MPIDI_CH3_PKT_RNDV_SEND);
+
+	DOCA_LOG_DBG("sizeof enum MPIDI_CH3_Pkt_t: %d bytes", sizeof(MPIDI_CH3_Pkt_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_send_t: %d bytes", sizeof(MPIDI_CH3_Pkt_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_eagershort_send_t: %d bytes", sizeof(MPIDI_CH3_Pkt_eagershort_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_type_t: %d bytes", sizeof(MPIDI_CH3_Pkt_type_t));
+	DOCA_LOG_DBG("sizeof MPIDI_Message_match: %d bytes", sizeof(MPIDI_Message_match));
+	DOCA_LOG_DBG("sizeof   - MPIDI_Message_match_parts_t: %d bytes", sizeof(MPIDI_Message_match_parts_t));
+	DOCA_LOG_DBG("sizeof     - int32_t tag: %d bytes", sizeof(int32_t));
+	DOCA_LOG_DBG("sizeof     - MPIDI_Rank_t rank: %d bytes", sizeof(MPIDI_Rank_t));
+	DOCA_LOG_DBG("sizeof     - MPIR_Context_id_t context_id: %d bytes", sizeof(MPIR_Context_id_t));
+	DOCA_LOG_DBG("sizeof   - uintptr_t: %d bytes", sizeof(uintptr_t));
+	DOCA_LOG_DBG("sizeof MPI_Request: %d bytes", sizeof(MPI_Request));
+	DOCA_LOG_DBG("sizeof intptr_t: %d bytes", sizeof(intptr_t));
+	DOCA_LOG_DBG("+=====================================+");
+}
+
 int main(int argc, char **argv)
 {
 	int ret, i = 0;
@@ -366,6 +466,8 @@ int main(int argc, char **argv)
 							  &core_params_arr[i],
 							  core_params_arr[i].core_id);
 	}
+
+	printPacketTypeEnum();
 	if (!me)
 		rte_eal_mp_wait_lcore();
 	else

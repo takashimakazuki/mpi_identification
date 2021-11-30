@@ -60,7 +60,7 @@ sources = [
 	'./../../common/src/utils.c',
 ]
 
-common_dir = include_directories('./../../common/src')
+common_dir = include_directories('./../../common/src', './../../mpich/include')
 
-executable('doca_simple_fwd_vnf', sources, dependencies : [libcommon_dep, libflow_dep, libflow_utils_dep, libdpdk_dep, thread_dep], include_directories : [common_dir], install: false)
+executable('doca_simple_fwd_vnf', sources, dependencies : [libcommon_dep, libflow_dep, libflow_utils_dep, libdpdk_dep, thread_dep], include_directories : common_dir, install: false)
 
