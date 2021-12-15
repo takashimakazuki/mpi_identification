@@ -271,6 +271,7 @@ simple_fwd_init_ports_and_pipes(struct simple_fwd_port_cfg *port_cfg)
 	}
 
 	/* build pipe on each port */
+	// NOTE: docaパイプ作成
 	for (index = 0; index < SIMPLE_FWD_PORTS; index++)
 	{
 		port = simple_fwd_ins->port[index];
@@ -300,114 +301,115 @@ simple_fwd_init(void *p)
 	return simple_fwd_init_ports_and_pipes(port_cfg);
 }
 
-struct doca_flow_pipe_entry *
-simple_fwd_pipe_add_entry(struct doca_flow_pipe *pipe,
-						  struct simple_fwd_pkt_info *pinfo,
-						  struct doca_flow_fwd *fwd)
-{
-	struct doca_flow_match match;
-	struct doca_flow_monitor mon = {0};
-	struct doca_flow_actions actions = {0};
-	struct doca_flow_error error = {0};
+// struct doca_flow_pipe_entry *
+// simple_fwd_pipe_add_entry(struct doca_flow_pipe *pipe,
+// 						  struct simple_fwd_pkt_info *pinfo,
+// 						  struct doca_flow_fwd *fwd)
+// {
+// 	struct doca_flow_match match;
+// 	struct doca_flow_monitor mon = {0};
+// 	struct doca_flow_actions actions = {0};
+// 	struct doca_flow_error error = {0};
 
-	if (pinfo->outer.l3_type != IPV4)
-	{
-		DOCA_LOG_WARN("IPv6 not supported");
-		return NULL;
-	}
+// 	if (pinfo->outer.l3_type != IPV4)
+// 	{
+// 		DOCA_LOG_WARN("IPv6 not supported");
+// 		return NULL;
+// 	}
 
-	if (pinfo->tun_type != DOCA_FLOW_TUN_VXLAN && pinfo->inner.l4_type != IPPROTO_TCP)
-		return NULL;
+// 	if (pinfo->tun_type != DOCA_FLOW_TUN_VXLAN && pinfo->inner.l4_type != IPPROTO_TCP)
+// 		return NULL;
 
-	memset(&match, 0x0, sizeof(match));
-	/* exact outer 5-tuple */
-	match.out_dst_ip.ipv4_addr = simple_fwd_pinfo_outer_ipv4_dst(pinfo);
-	match.out_l4_type = pinfo->outer.l4_type;
-	match.tun.vxlan_tun_id = pinfo->tun.vni;
-	match.in_dst_ip.ipv4_addr =
-		simple_fwd_pinfo_inner_ipv4_dst(pinfo);
-	match.in_src_ip.ipv4_addr =
-		simple_fwd_pinfo_inner_ipv4_src(pinfo);
-	match.in_l4_type = pinfo->inner.l4_type;
-	match.in_src_port = simple_fwd_pinfo_inner_src_port(pinfo);
-	match.in_dst_port = simple_fwd_pinfo_inner_dst_port(pinfo);
+// 	memset(&match, 0x0, sizeof(match));
+// 	/* exact outer 5-tuple */
+// 	match.out_dst_ip.ipv4_addr = simple_fwd_pinfo_outer_ipv4_dst(pinfo);
+// 	match.out_l4_type = pinfo->outer.l4_type;
+// 	match.tun.vxlan_tun_id = pinfo->tun.vni;
+// 	match.in_dst_ip.ipv4_addr =
+// 		simple_fwd_pinfo_inner_ipv4_dst(pinfo);
+// 	match.in_src_ip.ipv4_addr =
+// 		simple_fwd_pinfo_inner_ipv4_src(pinfo);
+// 	match.in_l4_type = pinfo->inner.l4_type;
+// 	match.in_src_port = simple_fwd_pinfo_inner_src_port(pinfo);
+// 	match.in_dst_port = simple_fwd_pinfo_inner_dst_port(pinfo);
 
-	actions.has_encap = true;
-	actions.encap.src_ip.type = DOCA_FLOW_IP4_ADDR;
-	actions.encap.src_ip.ipv4_addr =
-		simple_fwd_pinfo_outer_ipv4_dst(pinfo);
-	actions.encap.dst_ip.ipv4_addr =
-		simple_fwd_pinfo_outer_ipv4_src(pinfo);
-	memset(actions.encap.src_mac, 0xaa, sizeof(actions.encap.src_mac));
-	memset(actions.encap.dst_mac, 0xbb, sizeof(actions.encap.src_mac));
-	actions.encap.tun.type = pinfo->tun_type;
-	if (pinfo->tun_type == DOCA_FLOW_TUN_VXLAN)
-		actions.encap.tun.vxlan_tun_id = 0x42;
-	actions.mod_dst_ip.ipv4_addr =
-		(simple_fwd_pinfo_inner_ipv4_dst(pinfo) & rte_cpu_to_be_32(0x00ffffff)) |
-		rte_cpu_to_be_32(0x25000000);
-	mon.flags |= DOCA_FLOW_MONITOR_COUNT;
-	return doca_flow_pipe_add_entry(0, pipe, &match, &actions, &mon,
-									fwd, &error);
-}
+// 	actions.has_encap = true;
+// 	actions.encap.src_ip.type = DOCA_FLOW_IP4_ADDR;
+// 	actions.encap.src_ip.ipv4_addr =
+// 		simple_fwd_pinfo_outer_ipv4_dst(pinfo);
+// 	actions.encap.dst_ip.ipv4_addr =
+// 		simple_fwd_pinfo_outer_ipv4_src(pinfo);
+// 	memset(actions.encap.src_mac, 0xaa, sizeof(actions.encap.src_mac));
+// 	memset(actions.encap.dst_mac, 0xbb, sizeof(actions.encap.src_mac));
+// 	actions.encap.tun.type = pinfo->tun_type;
+// 	if (pinfo->tun_type == DOCA_FLOW_TUN_VXLAN)
+// 		actions.encap.tun.vxlan_tun_id = 0x42;
+// 	actions.mod_dst_ip.ipv4_addr =
+// 		(simple_fwd_pinfo_inner_ipv4_dst(pinfo) & rte_cpu_to_be_32(0x00ffffff)) |
+// 		rte_cpu_to_be_32(0x25000000);
+// 	mon.flags |= DOCA_FLOW_MONITOR_COUNT;
+// 	return doca_flow_pipe_add_entry(0, pipe, &match, &actions, &mon,
+// 									fwd, &error);
+// }
 
-static int
-simple_fwd_handle_new_flow(struct simple_fwd_pkt_info *pinfo,
-						   struct simple_fwd_ft_user_ctx **ctx)
-{
-	struct simple_fwd_pipe_entry *entry = NULL;
-	struct doca_flow_pipe *pipe;
-	struct doca_flow_fwd *fwd = NULL;
+// static int
+// simple_fwd_handle_new_flow(struct simple_fwd_pkt_info *pinfo,
+// 						   struct simple_fwd_ft_user_ctx **ctx)
+// {
+// 	struct simple_fwd_pipe_entry *entry = NULL;
+// 	struct doca_flow_pipe *pipe;
+// 	struct doca_flow_fwd *fwd = NULL;
 
-	if ((pinfo->outer.l4_type != IPPROTO_TCP) &&
-		(pinfo->outer.l4_type != IPPROTO_UDP) &&
-		(pinfo->outer.l4_type != IPPROTO_GRE))
-		return -1;
+// 	if ((pinfo->outer.l4_type != IPPROTO_TCP) &&
+// 		(pinfo->outer.l4_type != IPPROTO_UDP) &&
+// 		(pinfo->outer.l4_type != IPPROTO_GRE))
+// 		return -1;
 
-	if (pinfo->tun_type == DOCA_FLOW_TUN_VXLAN)
-		pipe = simple_fwd_ins->pipe_vxlan[pinfo->orig_port_id];
-	else if (pinfo->tun_type == DOCA_FLOW_TUN_GRE)
-	{
-		struct doca_flow_port *port;
-		struct simple_fwd_port_cfg *port_cfg;
+// 	if (pinfo->tun_type == DOCA_FLOW_TUN_VXLAN)
+// 		pipe = simple_fwd_ins->pipe_vxlan[pinfo->orig_port_id];
+// 	else if (pinfo->tun_type == DOCA_FLOW_TUN_GRE)
+// 	{
+// 		struct doca_flow_port *port;
+// 		struct simple_fwd_port_cfg *port_cfg;
 
-		port = simple_fwd_ins->port[pinfo->orig_port_id];
-		port_cfg = simple_fwd_get_port_cfg(port);
-		fwd = simple_fwd_get_fwd(port_cfg);
-		pipe = simple_fwd_ins->pipe_gre[pinfo->orig_port_id];
-	}
-	else
-		return -1;
+// 		port = simple_fwd_ins->port[pinfo->orig_port_id];
+// 		port_cfg = simple_fwd_get_port_cfg(port);
+// 		fwd = simple_fwd_get_fwd(port_cfg);
+// 		pipe = simple_fwd_ins->pipe_gre[pinfo->orig_port_id];
+// 	}
+// 	else
+// 		return -1;
 
-	if (!simple_fwd_ft_add_new(simple_fwd_ins->ft, pinfo, ctx))
-	{
-		DOCA_LOG_DBG("failed create new entry");
-		return -1;
-	}
-	entry = (struct simple_fwd_pipe_entry *)&(*ctx)->data[0];
-	entry->hw_entry = simple_fwd_pipe_add_entry(pipe, pinfo, fwd);
-	if (entry->hw_entry == NULL)
-	{
-		DOCA_LOG_DBG("failed to offload");
-		return -1;
-	}
-	entry->is_hw = true;
-	return 0;
-}
+// 	if (!simple_fwd_ft_add_new(simple_fwd_ins->ft, pinfo, ctx))
+// 	{
+// 		DOCA_LOG_DBG("failed create new entry");
+// 		return -1;
+// 	}
+// 	entry = (struct simple_fwd_pipe_entry *)&(*ctx)->data[0];
+// 	entry->hw_entry = simple_fwd_pipe_add_entry(pipe, pinfo, fwd);
+// 	if (entry->hw_entry == NULL)
+// 	{
+// 		DOCA_LOG_DBG("failed to offload");
+// 		return -1;
+// 	}
+// 	entry->is_hw = true;
+// 	return 0;
+// }
 
+// NOTE: flow情報を生成，マッチングは不必要
 static int
 simple_fwd_handle_packet(struct simple_fwd_pkt_info *pinfo)
 {
-	struct simple_fwd_ft_user_ctx *ctx = NULL;
-	struct simple_fwd_pipe_entry *entry = NULL;
+	// struct simple_fwd_ft_user_ctx *ctx = NULL;
+	// struct simple_fwd_pipe_entry *entry = NULL;
 
-	if (!simple_fwd_ft_find(simple_fwd_ins->ft, pinfo, &ctx))
-	{
-		if (simple_fwd_handle_new_flow(pinfo, &ctx))
-			return -1;
-	}
-	entry = (struct simple_fwd_pipe_entry *)&ctx->data[0];
-	entry->total_pkts++;
+	// if (!simple_fwd_ft_find(simple_fwd_ins->ft, pinfo, &ctx))
+	// {
+	// 	if (simple_fwd_handle_new_flow(pinfo, &ctx))
+	// 		return -1;
+	// }
+	// entry = (struct simple_fwd_pipe_entry *)&ctx->data[0];
+	// entry->total_pkts++;
 	return 0;
 }
 
@@ -425,6 +427,7 @@ simple_fwd_destroy(void)
 	return 0;
 }
 
+// 各箇所で処理する内容を関数として登録しているのみ
 struct app_vnf simple_fwd_vnf = {
 	.vnf_init = &simple_fwd_init,
 	.vnf_process_pkt = &simple_fwd_handle_packet,
