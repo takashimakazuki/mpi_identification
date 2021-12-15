@@ -56,11 +56,11 @@ sources = [
 	'simple_fwd_port.c',
 	'simple_fwd_vnf.c',
 	'simple_fwd.c',
-	'./../../common/src/flow_offload.c',
-	'./../../common/src/utils.c',
+	'./../common/src/flow_offload.c',
+	'./../common/src/utils.c',
 ]
 
-common_dir = include_directories('./../../common/src', './../../mpich/include')
+common_dir = include_directories('./../common/src', './../mpich/include')
 
-executable('doca_simple_fwd_vnf', sources, dependencies : [libcommon_dep, libflow_dep, libflow_utils_dep, libdpdk_dep, thread_dep], include_directories : common_dir, install: false)
+executable('log_mpi', sources, dependencies : [libcommon_dep, libflow_dep, libflow_utils_dep, libdpdk_dep, thread_dep], include_directories : common_dir, install: false)
 
