@@ -56,6 +56,7 @@ sources = [
 	'simple_fwd_port.c',
 	'simple_fwd_vnf.c',
 	'simple_fwd.c',
+	'logger.c',
 	'./../common/src/flow_offload.c',
 	'./../common/src/utils.c',
 ]

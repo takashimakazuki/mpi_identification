@@ -21,5 +21,12 @@ unsigned short mpich_port_end = 50100;
 - DOCAアプリケーション実行
 - [こちらのサンプルアプリ(simple-forward-vnf)](https://docs.nvidia.com/doca/sdk/simple-forward/index.html)を参考にしているため，実行方法もこちらに従う．
 ```bash
-sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=1 --log_level=8 
+sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=2 --log_level=8 
 ```
+
+## 取得するデータ
+- ログ記録時刻
+- 送信元ノードIP
+- 宛先ノードIP
+- 送信データサイズ
+- MPI関数
