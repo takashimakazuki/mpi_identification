@@ -56,6 +56,7 @@
 #include "mpi.h"
 #include "mpidpre.h"
 #include "mpidpkt.h"
+#include "mpir_tags.h"
 #include "logger.h"
 
 DOCA_LOG_REGISTER(SIMPLE_FWD);
@@ -83,17 +84,6 @@ struct vnf_per_core_params
 };
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
-struct mpi_function_info
-{
-	int func;
-	char func_name[30];
-	int src_rank;
-	int dest_rank; // null
-	int data_size;
-	struct rte_ipv4_hdr *ipv4_hdr;
-	struct rte_tcp_hdr *tcp_hdr;
-} typedef mpi_function_info_t;
-
 void get_ipv4_addr(const rte_be32_t dip, const rte_be32_t sip, char *buf)
 {
 	sprintf(buf, "DIP=%d.%d.%d.%d, SIP=%d.%d.%d.%d",
@@ -107,13 +97,28 @@ void get_ipv4_addr(const rte_be32_t dip, const rte_be32_t sip, char *buf)
 			(sip & 0x000000ff));
 }
 
+char *mpifunc_strings[4] = {
+	"BCAST",
+	"ALLGATHER",
+	"ALLTOALL",
+	"SEND",
+};
+
+char *get_mpifunc_string(int32_t tag)
+{
+	if (tag == MPIR_BCAST_TAG)
+	{
+		return mpifunc_strings[0];
+	}
+	return mpifunc_strings[3];
+}
+
 // L4(TCP)パケットペイロードの表示
 void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 {
 	const MPIDI_CH3_Pkt_t *pkt;
 	struct tcphdr *tcph = (struct tcphdr *)pinfo->outer.l4;
 	struct iphdr *iph = (struct iphdr *)pinfo->outer.l3;
-	mpi_function_info_t mpi_info;
 	// TCPペイロードの先頭ポインタ
 	uint8_t *l4_payload = pinfo->outer.l4 + tcph->doff * 4;
 	int pkt_len;
@@ -140,8 +145,8 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		// 型キャスト
 		pkt = (MPIDI_CH3_Pkt_t *)l4_payload;
 
-		// char ip_str_buf[50];
-		// get_ipv4_addr(htonl(iph->daddr), htonl(iph->saddr), ip_str_buf);
+		char ip_str_buf[50];
+		get_ipv4_addr(htonl(iph->daddr), htonl(iph->saddr), ip_str_buf);
 
 		switch (pkt->type)
 		{
@@ -149,7 +154,14 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		{
 			MPIDI_CH3_Pkt_eagershort_send_t *eagershort_pkt = &pkt->eagershort_send;
 			// TODO: 本番形式に直す
-			// putLog("EAGERSHORT_SEND, %s, type=%d, tag=%d, rank=%d, context_id=%d, size=%d", ip_str_buf, eagershort_pkt->type, eagershort_pkt->match.parts.tag, eagershort_pkt->match.parts.rank, eagershort_pkt->match.parts.context_id, eagershort_pkt->data_sz);
+			putLog("EAGERSHORT_SEND, %s, type=%d, tag=%d, rank=%d, context_id=%d, size=%d, func=%s",
+				   ip_str_buf,
+				   eagershort_pkt->type,
+				   eagershort_pkt->match.parts.tag,
+				   eagershort_pkt->match.parts.rank,
+				   eagershort_pkt->match.parts.context_id,
+				   eagershort_pkt->data_sz,
+				   get_mpifunc_string(eagershort_pkt->match.parts.tag));
 			break;
 		}
 		case MPIDI_CH3_PKT_RNDV_REQ_TO_SEND:
@@ -164,20 +176,33 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		{
 			MPIDI_CH3_Pkt_eager_send_t *eager_send = &pkt->eager_send;
 			// TODO: 本番形式に直す
-			// putLog("EAGER_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d", ip_str_buf, eager_send->type, eager_send->match.parts.tag, eager_send->match.parts.rank, eager_send->match.parts.context_id, eager_send->data_sz);
+			putLog("EAGER_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+				   ip_str_buf,
+				   eager_send->type,
+				   eager_send->match.parts.tag,
+				   eager_send->match.parts.rank,
+				   eager_send->match.parts.context_id,
+				   eager_send->data_sz,
+				   get_mpifunc_string(eager_send->match.parts.tag));
 			break;
 		}
 
 		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
 		{
 			MPIDI_CH3_Pkt_eager_sync_send_t *eagersync_send = &pkt->eager_sync_send;
-			// putLog("EAGERSYNC_SEND, type=%d, tag=%d, rank=%d, context_id=%d, size=%d", eagersync_send->type, eagersync_send->match.parts.tag, eagersync_send->match.parts.rank, eagersync_send->match.parts.context_id, eagersync_send->data_sz);
+			putLog("EAGERSYNC_SEND, type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+				   eagersync_send->type,
+				   eagersync_send->match.parts.tag,
+				   eagersync_send->match.parts.rank,
+				   eagersync_send->match.parts.context_id,
+				   eagersync_send->data_sz,
+				   get_mpifunc_string(eagersync_send->match.parts.tag));
 		}
 		}
 	}
 }
 
-/*this is very bad way to do it, need to set start time and use rte_*/
+/*this is very bad wasy to do it, need to set start time and use rte_*/
 static inline uint64_t simple_fwd_get_time_usec(void)
 {
 	struct timeval tv;
@@ -259,6 +284,7 @@ static int simple_fwd_process_pkts(void *p)
 				{
 					// ポート0で受信したパケット->ポート1へ送信
 					// ポート1で受信したパケット->ポート0へ送信
+					// 送信成功した場合，自動的にmbufsは開放される
 					rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, &mbufs[j], 1);
 				}
 			}

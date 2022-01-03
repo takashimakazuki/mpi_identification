@@ -45,8 +45,11 @@ int getDateTime(char *format, int dateTimeLen, char *dateTime)
             timeData.tm_year + 1900,
             timeData.tm_mon + 1,
             timeData.tm_mday,
+            timeData.tm_hour,
             timeData.tm_min,
-            timeData.tm_sec);
+            timeData.tm_sec,
+            timevalData.tv_usec
+            );
     return ret;
 }
 
