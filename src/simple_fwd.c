@@ -45,7 +45,6 @@
 #include <rte_cycles.h>
 #include <doca_flow.h>
 #include <doca_log.h>
-#include <doca_log.h>
 #include "flow_offload.h"
 #include "utils.h"
 #include "app_vnf.h"
@@ -190,7 +189,8 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
 		{
 			MPIDI_CH3_Pkt_eager_sync_send_t *eagersync_send = &pkt->eager_sync_send;
-			putLog("EAGERSYNC_SEND, type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+			putLog("EAGERSYNC_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+				   ip_str_buf,
 				   eagersync_send->type,
 				   eagersync_send->match.parts.tag,
 				   eagersync_send->match.parts.rank,

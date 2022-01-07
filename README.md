@@ -25,8 +25,12 @@ sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_q
 ```
 
 ## 取得するデータ
-- ログ記録時刻
+- ログ記録時刻(UTC)
 - 送信元ノードIP
 - 宛先ノードIP
 - 送信データサイズ
 - MPI関数
+
+## ログファイル出力のバッファリング
+
+- setvbufを用いてバッファリングを実装

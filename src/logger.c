@@ -6,12 +6,17 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include "logger.h"
+
+#define DEBUG
 
 #define LOG_FILE_SIZE_KB 1024
 // ログファイル名
 #define LOG_FILE_NAME "mpi_log"
+// バッファリングサイズ(bytes)
+#define LOG_BUF_SIZE 1000000
 
 // グローバル変数
 // ログファイルNo 0:ファイル未確定 1以上:ファイル名確定中
@@ -22,6 +27,15 @@ INI_VALUE_LOG gIniValLog;
 // ログファイル排他用ミューテックス
 pthread_mutex_t mutexLog = PTHREAD_MUTEX_INITIALIZER;
 
+char mpilog_buf[LOG_BUF_SIZE];
+
+#ifdef DEBUG
+clock_t start, end;
+double cpu_time_pthread_mutex_lock;
+double cpu_time_getDateTime;
+double cpu_time_get_filename;
+double cpu_time_file_write;
+#endif
 
 // TODO: BOFの危険あり．dateTimeLenで出力文字数の制限を行う．
 int getDateTime(char *format, int dateTimeLen, char *dateTime)
@@ -48,8 +62,7 @@ int getDateTime(char *format, int dateTimeLen, char *dateTime)
             timeData.tm_hour,
             timeData.tm_min,
             timeData.tm_sec,
-            timevalData.tv_usec
-            );
+            timevalData.tv_usec);
     return ret;
 }
 
@@ -64,15 +77,32 @@ void putLog(char *format, ...)
     va_list vaList;      // 可変文字列
     int renewFile;       // ファイル作成し直し要否
 
+#ifdef DEBUG
+    start = clock();
     ret = pthread_mutex_lock(&mutexLog);
+    end = clock();
+    cpu_time_pthread_mutex_lock = ((double)(end - start));
+#else
+    ret = pthread_mutex_lock(&mutexLog);
+#endif
 
+#ifdef DEBUG
+    start = clock();
+#endif
     memset(dateTime, 0x0, sizeof(dateTime));
     ret = getDateTime(LOG_DATETIME_FORMAT, sizeof(dateTime), dateTime);
     if (ret != 0)
     {
         return;
     }
+#ifdef DEBUG
+    end = clock();
+    cpu_time_getDateTime = ((double)(end - start));
+#endif
 
+#ifdef DEBUG
+    start = clock();
+#endif
     //  ファイル名の取得
     memset(fileName, 0x0, sizeof(fileName));
     sprintf(fileName, "%s/%s%06d.log", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
@@ -100,6 +130,15 @@ void putLog(char *format, ...)
         }
     }
 
+    ret = pthread_mutex_unlock(&mutexLog);
+
+    return ;
+
+#ifdef DEBUG
+    end = clock();
+    cpu_time_get_filename = ((double)(end - start));
+#endif
+
     // ログファイル名の取得(フルパス)
     sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
     fp = NULL;
@@ -119,24 +158,42 @@ void putLog(char *format, ...)
     }
     else
     {
+        if (setvbuf(fp, mpilog_buf, _IOFBF, LOG_BUF_SIZE) != 0)
+        {
+            fprintf(fp, "setvbuf failed.");
+        }
+
+#ifdef DEBUG
+        start = clock();
+#endif
+
         va_start(vaList, format);
         // 日時の出力
         fprintf(fp, "%s, ", dateTime);
         vfprintf(fp, format, vaList);
         fprintf(fp, "\n");
+        fprintf(fp, "cpu_time_pthread_mutex_lock=%lf\ncpu_time_getDateTime=%lf\ncpu_time_get_filename=%lf\ncpu_time_file_write=%lf",
+                cpu_time_pthread_mutex_lock,
+                cpu_time_getDateTime,
+                cpu_time_get_filename,
+                cpu_time_file_write);
         va_end(vaList);
 
-        ret = fflush(fp);
-        if (ret == -1)
-        {
-            // file flush error
-        }
+        // ret = fflush(fp);
+        // if (ret == -1)
+        // {
+        //     // file flush error
+        // }
 
         ret = fclose(fp);
         if (ret == -1)
         {
             // file close error
         }
+#ifdef DEBUG
+        end = clock();
+        cpu_time_file_write = ((double)(end - start));
+#endif
     }
 
     ret = pthread_mutex_unlock(&mutexLog);
