@@ -245,6 +245,7 @@ static int simple_fwd_process_pkts(void *p)
 {
 	uint64_t cur_tsc, last_tsc;
 	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
+	struct rte_mbuf *mbufs_cpy[VNF_RX_BURST_SIZE];
 	uint16_t j, nb_rx, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
@@ -270,22 +271,20 @@ static int simple_fwd_process_pkts(void *p)
 			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs,
 									 VNF_RX_BURST_SIZE);
 
+			// パケット受信から送信までの時間を短縮するため，
+			// rte_eth_rx_burstで受け取ったmbufはコピーし，以降のパケット参照時にはコピーしたmbufs_cpyを使用する
+			for (j = 0; j < nb_rx; j++)
+			{
+				mbufs_cpy[j] = mbufs[j];
+				// パケット送信，mbufの解放
+				rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, &mbufs[j], 1);
+			}
+
 			for (j = 0; j < nb_rx; j++)
 			{
 				if (hw_offload && !core_id)
 				{
-					simple_fwd_process_offload(mbufs[j]);
-				}
-				if (rx_only)
-				{
-					rte_pktmbuf_free(mbufs[j]);
-				}
-				else
-				{
-					// ポート0で受信したパケット->ポート1へ送信
-					// ポート1で受信したパケット->ポート0へ送信
-					// 送信成功した場合，自動的にmbufsは開放される
-					rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, &mbufs[j], 1);
+					simple_fwd_process_offload(mbufs_cpy[j]);
 				}
 			}
 		}
