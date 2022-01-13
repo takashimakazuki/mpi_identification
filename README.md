@@ -36,7 +36,7 @@ sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_q
 - fopen, fcloseを使うとバッファのflushが自動で行われるため，ログ出力のバッファリングは行われない
 - putLogのフロー
 	1. バッファされている文字列長buf_lenを取得
-	1. if buf_len > 10000
+	1. if buf_len > LOG_BUF_SIZE
 		1. mutex lock
 		1. ファイルオープン
 		1. ファイルに文字列を出力

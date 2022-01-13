@@ -8,15 +8,22 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include <rte_common.h>
+#include <doca_log.h>
+
 #include "logger.h"
+
+DOCA_LOG_REGISTER(MPI_LOGGER);
 
 // #define DEBUG
 
 #define LOG_FILE_SIZE_KB 1024
 // ログファイル名
 #define LOG_FILE_NAME "mpi_log"
-// バッファリングサイズ(bytes)
-#define LOG_BUF_SIZE 1000000
+// バッファするログの数
+#define LOG_BUF_LINE_MAX 1000
+// ログ一行のサイズ上限 (EAGER_SENDのログが128byteだったため，余裕を持たせて150byteとした)
+#define LOG_BUF_LINE_SIZE 150
 
 // グローバル変数
 // ログファイルNo 0:ファイル未確定 1以上:ファイル名確定中
@@ -27,15 +34,14 @@ INI_VALUE_LOG gIniValLog;
 // ログファイル排他用ミューテックス
 pthread_mutex_t mutexLog = PTHREAD_MUTEX_INITIALIZER;
 
-char mpilog_buf[LOG_BUF_SIZE];
+// ログをファイル出力前に保存するバッファ
+char mpilog_buf[LOG_BUF_LINE_MAX][LOG_BUF_LINE_SIZE];
+int mpilog_buf_line_cnt = 0;
 
-#ifdef DEBUG
-clock_t start, end;
-double cpu_time_pthread_mutex_lock;
-double cpu_time_getDateTime;
-double cpu_time_get_filename;
-double cpu_time_file_write;
-#endif
+void init_mpilog_buf()
+{
+    memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
+}
 
 // TODO: BOFの危険あり．dateTimeLenで出力文字数の制限を行う．
 int getDateTime(char *format, int dateTimeLen, char *dateTime)
@@ -77,14 +83,39 @@ void putLog(char *format, ...)
     va_list vaList;      // 可変文字列
     int renewFile;       // ファイル作成し直し要否
 
-    ret = pthread_mutex_lock(&mutexLog);
-
     memset(dateTime, 0x0, sizeof(dateTime));
     ret = getDateTime(LOG_DATETIME_FORMAT, sizeof(dateTime), dateTime);
     if (ret != 0)
     {
         return;
     }
+
+#ifdef DEBUG
+    struct timeval start;
+    struct timeval end;
+    gettimeofday(&start, NULL);
+#endif
+    // バッファに書き込み
+    va_start(vaList, format);
+    snprintf(mpilog_buf[mpilog_buf_line_cnt], LOG_BUF_LINE_SIZE, "%s, ", dateTime);
+    vsnprintf(mpilog_buf[mpilog_buf_line_cnt] + strlen(mpilog_buf[mpilog_buf_line_cnt]), LOG_BUF_LINE_SIZE, format, vaList);
+    snprintf(mpilog_buf[mpilog_buf_line_cnt] + strlen(mpilog_buf[mpilog_buf_line_cnt]), LOG_BUF_LINE_SIZE, "\n");
+    va_end(vaList);
+    mpilog_buf_line_cnt++;
+
+#ifdef DEBUG
+    gettimeofday(&end, NULL);
+    float diff = end.tv_sec - start.tv_sec + (float)(end.tv_usec - start.tv_usec);
+    DOCA_LOG_INFO("buffer writing time: %f[us]", diff);
+#endif
+    if (mpilog_buf_line_cnt < LOG_BUF_LINE_MAX)
+    {
+        // ログがLOG_BUF_LINE_MAX-1件まで溜まっていない場合には処理を終了する
+        return;
+    }
+
+    ret = pthread_mutex_lock(&mutexLog);
+
     //  ファイル名の取得
     memset(fileName, 0x0, sizeof(fileName));
     sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
@@ -132,13 +163,15 @@ void putLog(char *format, ...)
     }
     else
     {
+        // ログをファイル出力
+        for (int i = 0; i < LOG_BUF_LINE_MAX; i++)
+        {
+            fprintf(fp, "%s", mpilog_buf[i]);
+        }
 
-        va_start(vaList, format);
-        // 日時の出力
-        fprintf(fp, "%s, ", dateTime);
-        vfprintf(fp, format, vaList);
-        fprintf(fp, "\n");
-        va_end(vaList);
+        // ログバッファをクリア
+        memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
+        mpilog_buf_line_cnt = 0;
 
         ret = fclose(fp);
         if (ret == -1)

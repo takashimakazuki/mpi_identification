@@ -60,7 +60,7 @@
 
 DOCA_LOG_REGISTER(SIMPLE_FWD);
 
-#define DEBUG
+// #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
 #define VNF_RX_BURST_SIZE (32)

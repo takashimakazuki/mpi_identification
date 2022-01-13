@@ -6,8 +6,8 @@
 #define LOG_FILE_SIZE_MAX_MAX 2097151 // ログファイルサイズの最大サイズKB個数(2097151)7FFFFC00
 
 #define LOG_FILE_DEF_PATH "."      // ログファイルのデフォルトパス
-#define LOG_FILE_DEF_SIZE_MAX 1024 // ログファイルのデフォルト最大サイズ
-#define LOG_FILE_DEF_NUM_MAX 3     // ログファイルのデフォルト最大世代数
+#define LOG_FILE_DEF_SIZE_MAX 10 * 1024 // ログファイルのデフォルト最大サイズ
+#define LOG_FILE_DEF_NUM_MAX 99     // ログファイルのデフォルト最大世代数
 #define LOG_TYPE_APL 0
 #define LOG_DATETIME_FORMAT "%04d-%02d-%02dT%02d:%02d:%02d.%06lu"
 
