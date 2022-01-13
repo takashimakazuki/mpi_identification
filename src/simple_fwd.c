@@ -60,6 +60,7 @@
 
 DOCA_LOG_REGISTER(SIMPLE_FWD);
 
+#define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
 #define VNF_RX_BURST_SIZE (32)
@@ -109,13 +110,20 @@ char *get_mpifunc_string(int32_t tag)
 	{
 		return mpifunc_strings[0];
 	}
+	else if (tag == MPIR_ALLGATHER_TAG)
+	{
+		return mpifunc_strings[1];
+	}
+	else if (tag == MPIR_ALLTOALL_TAG)
+	{
+		return mpifunc_strings[2];
+	}
 	return mpifunc_strings[3];
 }
 
-// L4(TCP)パケットペイロードの表示
-void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
+void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 {
-	const MPIDI_CH3_Pkt_t *pkt;
+	MPIDI_CH3_Pkt_t *pkt;
 	struct tcphdr *tcph = (struct tcphdr *)pinfo->outer.l4;
 	struct iphdr *iph = (struct iphdr *)pinfo->outer.l3;
 	// TCPペイロードの先頭ポインタ
@@ -151,8 +159,12 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		{
 		case MPIDI_CH3_PKT_EAGERSHORT_SEND:
 		{
+#ifdef DEBUG
+			struct timeval start;
+			struct timeval end;
+			gettimeofday(&start, NULL);
+#endif
 			MPIDI_CH3_Pkt_eagershort_send_t *eagershort_pkt = &pkt->eagershort_send;
-			// TODO: 本番形式に直す
 			putLog("EAGERSHORT_SEND, %s, type=%d, tag=%d, rank=%d, context_id=%d, size=%d, func=%s",
 				   ip_str_buf,
 				   eagershort_pkt->type,
@@ -161,6 +173,12 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 				   eagershort_pkt->match.parts.context_id,
 				   eagershort_pkt->data_sz,
 				   get_mpifunc_string(eagershort_pkt->match.parts.tag));
+
+#ifdef DEBUG
+			gettimeofday(&end, NULL);
+			float diff = end.tv_sec - start.tv_sec + (float)(end.tv_usec - start.tv_usec);
+			DOCA_LOG_INFO("putLog time: %f[us]", diff);
+#endif
 			break;
 		}
 		case MPIDI_CH3_PKT_RNDV_REQ_TO_SEND:
@@ -173,8 +191,12 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 		}
 		case MPIDI_CH3_PKT_EAGER_SEND:
 		{
+#ifdef DEBUG
+			struct timeval start;
+			struct timeval end;
+			gettimeofday(&start, NULL);
+#endif
 			MPIDI_CH3_Pkt_eager_send_t *eager_send = &pkt->eager_send;
-			// TODO: 本番形式に直す
 			putLog("EAGER_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
 				   ip_str_buf,
 				   eager_send->type,
@@ -183,6 +205,11 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 				   eager_send->match.parts.context_id,
 				   eager_send->data_sz,
 				   get_mpifunc_string(eager_send->match.parts.tag));
+#ifdef DEBUG
+			gettimeofday(&end, NULL);
+			float diff = end.tv_sec - start.tv_sec + (float)(end.tv_usec - start.tv_usec);
+			DOCA_LOG_INFO("putLog time: %f[us]", diff);
+#endif
 			break;
 		}
 
@@ -197,6 +224,9 @@ void print_l4_payload_nbytes(struct simple_fwd_pkt_info *pinfo)
 				   eagersync_send->match.parts.context_id,
 				   eagersync_send->data_sz,
 				   get_mpifunc_string(eagersync_send->match.parts.tag));
+		}
+		default:
+		{
 		}
 		}
 	}
@@ -236,7 +266,7 @@ static void simple_fwd_process_offload(struct rte_mbuf *mbuf)
 	if (pinfo.outer.l3_type != IPV4)
 		return;
 	vnf->vnf_process_pkt(&pinfo);
-	print_l4_payload_nbytes(&pinfo);
+	analyze_packets(&pinfo);
 
 	vnf_adjust_mbuf(mbuf, &pinfo);
 }

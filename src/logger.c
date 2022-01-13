@@ -10,7 +10,7 @@
 
 #include "logger.h"
 
-#define DEBUG
+// #define DEBUG
 
 #define LOG_FILE_SIZE_KB 1024
 // ログファイル名
@@ -77,35 +77,17 @@ void putLog(char *format, ...)
     va_list vaList;      // 可変文字列
     int renewFile;       // ファイル作成し直し要否
 
-#ifdef DEBUG
-    start = clock();
     ret = pthread_mutex_lock(&mutexLog);
-    end = clock();
-    cpu_time_pthread_mutex_lock = ((double)(end - start));
-#else
-    ret = pthread_mutex_lock(&mutexLog);
-#endif
 
-#ifdef DEBUG
-    start = clock();
-#endif
     memset(dateTime, 0x0, sizeof(dateTime));
     ret = getDateTime(LOG_DATETIME_FORMAT, sizeof(dateTime), dateTime);
     if (ret != 0)
     {
         return;
     }
-#ifdef DEBUG
-    end = clock();
-    cpu_time_getDateTime = ((double)(end - start));
-#endif
-
-#ifdef DEBUG
-    start = clock();
-#endif
     //  ファイル名の取得
     memset(fileName, 0x0, sizeof(fileName));
-    sprintf(fileName, "%s/%s%06d.log", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
+    sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
     ret = stat(fileName, &stStat);
     if (ret != 0)
     {
@@ -130,17 +112,7 @@ void putLog(char *format, ...)
         }
     }
 
-    ret = pthread_mutex_unlock(&mutexLog);
-
-    return ;
-
-#ifdef DEBUG
-    end = clock();
-    cpu_time_get_filename = ((double)(end - start));
-#endif
-
     // ログファイル名の取得(フルパス)
-    sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
     fp = NULL;
     if (renewFile == 0)
     {
@@ -148,6 +120,8 @@ void putLog(char *format, ...)
     }
     else
     {
+        // 新規ファイルの場合，gLogCurNoが更新されているため，fileNameを更新する
+        sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
         fp = fopen(fileName, "w");
     }
 
@@ -158,42 +132,19 @@ void putLog(char *format, ...)
     }
     else
     {
-        if (setvbuf(fp, mpilog_buf, _IOFBF, LOG_BUF_SIZE) != 0)
-        {
-            fprintf(fp, "setvbuf failed.");
-        }
-
-#ifdef DEBUG
-        start = clock();
-#endif
 
         va_start(vaList, format);
         // 日時の出力
         fprintf(fp, "%s, ", dateTime);
         vfprintf(fp, format, vaList);
         fprintf(fp, "\n");
-        fprintf(fp, "cpu_time_pthread_mutex_lock=%lf\ncpu_time_getDateTime=%lf\ncpu_time_get_filename=%lf\ncpu_time_file_write=%lf",
-                cpu_time_pthread_mutex_lock,
-                cpu_time_getDateTime,
-                cpu_time_get_filename,
-                cpu_time_file_write);
         va_end(vaList);
-
-        // ret = fflush(fp);
-        // if (ret == -1)
-        // {
-        //     // file flush error
-        // }
 
         ret = fclose(fp);
         if (ret == -1)
         {
             // file close error
         }
-#ifdef DEBUG
-        end = clock();
-        cpu_time_file_write = ((double)(end - start));
-#endif
     }
 
     ret = pthread_mutex_unlock(&mutexLog);
@@ -227,7 +178,7 @@ void getCurrentLogFileNo(int fileType)
     fileUpdateTime = 0L;
     for (cnt = 0; cnt < fileNumMax; cnt++)
     {
-        sprintf(fileName, "%s/%s%06d.log", filePathName, fileNameBase, cnt + 1);
+        sprintf(fileName, "%s/%s.log.%d", filePathName, fileNameBase, cnt + 1);
         if ((stat(fileName, &stStat)) != 0)
         {
             // error

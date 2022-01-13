@@ -33,6 +33,18 @@ sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_q
 
 ## ログファイル出力のバッファリング
 
+- fopen, fcloseを使うとバッファのflushが自動で行われるため，ログ出力のバッファリングは行われない
+- putLogのフロー
+	1. バッファされている文字列長buf_lenを取得
+	1. if buf_len > 10000
+		1. mutex lock
+		1. ファイルオープン
+		1. ファイルに文字列を出力
+		1. ファイルクローズ
+		1. mutex free
+	1. else
+    - bufferに最新のログを追加
+
 ## パケット受信，解析処理，送信の実行順序
 パケット受信→解析処理→送信の順番で実行すると，解析処理の時間がかかってしまうため，通信遅延時間が大きくなる．
 
