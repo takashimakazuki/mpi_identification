@@ -63,7 +63,7 @@ DOCA_LOG_REGISTER(SIMPLE_FWD);
 // #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
-#define VNF_RX_BURST_SIZE (32)
+#define VNF_RX_BURST_SIZE (4)
 
 uint16_t nr_queues = 4;
 uint16_t rx_only;
@@ -165,12 +165,9 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 			gettimeofday(&start, NULL);
 #endif
 			MPIDI_CH3_Pkt_eagershort_send_t *eagershort_pkt = &pkt->eagershort_send;
-			putLog("EAGERSHORT_SEND, %s, type=%d, tag=%d, rank=%d, context_id=%d, size=%d, func=%s",
+			putLog("EAGERSHORT\t %s rank=%d size=%d func=%s",
 				   ip_str_buf,
-				   eagershort_pkt->type,
-				   eagershort_pkt->match.parts.tag,
 				   eagershort_pkt->match.parts.rank,
-				   eagershort_pkt->match.parts.context_id,
 				   eagershort_pkt->data_sz,
 				   get_mpifunc_string(eagershort_pkt->match.parts.tag));
 
@@ -197,12 +194,9 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 			gettimeofday(&start, NULL);
 #endif
 			MPIDI_CH3_Pkt_eager_send_t *eager_send = &pkt->eager_send;
-			putLog("EAGER_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+			putLog("EAGER_SEND\t %s rank=%d size=%d func=%s",
 				   ip_str_buf,
-				   eager_send->type,
-				   eager_send->match.parts.tag,
 				   eager_send->match.parts.rank,
-				   eager_send->match.parts.context_id,
 				   eager_send->data_sz,
 				   get_mpifunc_string(eager_send->match.parts.tag));
 #ifdef DEBUG
@@ -216,14 +210,14 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
 		{
 			MPIDI_CH3_Pkt_eager_sync_send_t *eagersync_send = &pkt->eager_sync_send;
-			putLog("EAGERSYNC_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
-				   ip_str_buf,
-				   eagersync_send->type,
-				   eagersync_send->match.parts.tag,
-				   eagersync_send->match.parts.rank,
-				   eagersync_send->match.parts.context_id,
-				   eagersync_send->data_sz,
-				   get_mpifunc_string(eagersync_send->match.parts.tag));
+			// putLog("EAGERSYNC_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
+			// 	   ip_str_buf,
+			// 	   eagersync_send->type,
+			// 	   eagersync_send->match.parts.tag,
+			// 	   eagersync_send->match.parts.rank,
+			// 	   eagersync_send->match.parts.context_id,
+			// 	   eagersync_send->data_sz,
+			// 	   get_mpifunc_string(eagersync_send->match.parts.tag));
 		}
 		default:
 		{
@@ -249,7 +243,7 @@ static void vnf_adjust_mbuf(struct rte_mbuf *m,
 	rte_pktmbuf_adj(m, diff);
 }
 
-static void simple_fwd_process_offload(struct rte_mbuf *mbuf)
+static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
 	// 各レイヤのヘッダの位置などの情報
 	struct simple_fwd_pkt_info pinfo;
@@ -285,16 +279,16 @@ static int simple_fwd_process_pkts(void *p)
 	last_tsc = rte_rdtsc();
 	while (!force_quit)
 	{
-		if (core_id == 0)
-		{
-			// 統計情報の出力
-			cur_tsc = rte_rdtsc();
-			if (cur_tsc > last_tsc + stats_timer)
-			{
-				simple_fwd_dump_port_stats(0);
-				last_tsc = cur_tsc;
-			}
-		}
+		// if (core_id == 0)
+		// {
+		// 	// 統計情報の出力
+		// 	cur_tsc = rte_rdtsc();
+		// 	if (cur_tsc > last_tsc + stats_timer)
+		// 	{
+		// 		simple_fwd_dump_port_stats(0);
+		// 		last_tsc = cur_tsc;
+		// 	}
+		// }
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
 			queue_id = params->queues[port_id];
@@ -314,11 +308,15 @@ static int simple_fwd_process_pkts(void *p)
 			{
 				if (hw_offload && !core_id)
 				{
-					simple_fwd_process_offload(mbufs_cpy[j]);
+					mpiid_process_offload(mbufs_cpy[j]);
 				}
 			}
 		}
 	}
+
+	// 終了処理
+	// MPIログバッファのflush
+	flush_mpilog_buf();
 	return 0;
 }
 

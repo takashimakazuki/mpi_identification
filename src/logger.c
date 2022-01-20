@@ -19,7 +19,7 @@ DOCA_LOG_REGISTER(MPI_LOGGER);
 
 #define LOG_FILE_SIZE_KB 1024
 // ログファイル名
-#define LOG_FILE_NAME "mpi_log"
+#define LOG_FILE_NAME "mpipacket_analyze_test"
 // バッファするログの数
 #define LOG_BUF_LINE_MAX 1000
 // ログ一行のサイズ上限 (EAGER_SENDのログが128byteだったため，余裕を持たせて150byteとした)
@@ -41,6 +41,40 @@ int mpilog_buf_line_cnt = 0;
 void init_mpilog_buf()
 {
     memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
+}
+
+// TODO: うまく動作しているか検証
+// - 1件のログが生成される通信を行った後にmpiidを停止する．このとき，ログがファイルに出力されていることを確認する
+void flush_mpilog_buf()
+{
+    int ret;             // 戻り値
+    FILE *fp;            // ファイルディスクプリタ
+    char fileName[2048]; // ログファイル名
+
+    ret = pthread_mutex_lock(&mutexLog);
+
+    //  ファイル名の取得
+    memset(fileName, 0x0, sizeof(fileName));
+    sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
+
+    fp = fopen(fileName, "a");
+
+    for (int i = 0; i < LOG_BUF_LINE_MAX; i++)
+    {
+        fprintf(fp, "%s", mpilog_buf[i]);
+    }
+
+    // ログバッファをクリア
+    memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
+    mpilog_buf_line_cnt = 0;
+
+    ret = fclose(fp);
+    if (ret == -1)
+    {
+        // file close error
+    }
+
+    ret = pthread_mutex_unlock(&mutexLog);
 }
 
 // TODO: BOFの危険あり．dateTimeLenで出力文字数の制限を行う．
