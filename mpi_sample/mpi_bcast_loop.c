@@ -3,7 +3,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define EXECUTION_TIME 3 // 実行時間(s)
+#define EXECUTION_TIME 60 // 実行時間(s)
 
 int main(int argc, char **argv)
 {
