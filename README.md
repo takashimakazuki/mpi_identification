@@ -24,6 +24,10 @@ unsigned short mpich_port_end = 50100;
 sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=2 --log_level=8 
 ```
 
+
+### 評価計測用のサンプルMPIプログラムの実行
+- mpichのインストールが必要, mpicc, mpirunが利用できることが必要
+
 ## 取得するデータ
 - ログ記録時刻(UTC)
 - 送信元ノードIP
