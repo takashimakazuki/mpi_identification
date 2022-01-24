@@ -281,13 +281,14 @@ static int simple_fwd_process_pkts(void *p)
 	{
 		// if (core_id == 0)
 		// {
-		// 	// 統計情報の出力
-		// 	cur_tsc = rte_rdtsc();
-		// 	if (cur_tsc > last_tsc + stats_timer)
-		// 	{
-		// 		simple_fwd_dump_port_stats(0);
-		// 		last_tsc = cur_tsc;
-		// 	}
+			// 統計情報の出力
+			// cur_tsc = rte_rdtsc();
+			// if (cur_tsc > last_tsc + stats_timer)
+			// {
+			// 	// simple_fwd_dump_port_stats(0);
+			// 	DOCA_LOG_INFO("core %u living", core_id);
+			// 	last_tsc = cur_tsc;
+			// }
 		// }
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
@@ -316,7 +317,7 @@ static int simple_fwd_process_pkts(void *p)
 
 	// 終了処理
 	// MPIログバッファのflush
-	flush_mpilog_buf();
+	flush_mpilog_buf(core_id);
 	return 0;
 }
 

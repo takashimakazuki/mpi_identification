@@ -8,7 +8,7 @@ echo "Current directory: $curDir"
 
 echo ""
 echo -e "\033[36m [INFO] meson build \033[m"
-meson build --reconfigure
+meson build
 
 echo ""
 echo -e "\033[36m [INFO] ninja -C build \033[m"

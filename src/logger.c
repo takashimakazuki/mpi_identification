@@ -45,7 +45,7 @@ void init_mpilog_buf()
 
 // TODO: うまく動作しているか検証
 // - 1件のログが生成される通信を行った後にmpiidを停止する．このとき，ログがファイルに出力されていることを確認する
-void flush_mpilog_buf()
+void flush_mpilog_buf(uint32_t core_id)
 {
     int ret;             // 戻り値
     FILE *fp;            // ファイルディスクプリタ
@@ -72,9 +72,12 @@ void flush_mpilog_buf()
     if (ret == -1)
     {
         // file close error
+        DOCA_LOG_INFO("FILE CLOSE ERROR");
     }
 
     ret = pthread_mutex_unlock(&mutexLog);
+
+    DOCA_LOG_DBG("core_id %u buffer is flushed!", core_id);
 }
 
 // TODO: BOFの危険あり．dateTimeLenで出力文字数の制限を行う．
@@ -87,11 +90,13 @@ int getDateTime(char *format, int dateTimeLen, char *dateTime)
     ret = gettimeofday(&timevalData, NULL);
     if (ret == -1)
     {
+        DOCA_LOG_INFO("gettimeofday ERROR");
         return -1;
     }
 
     if (localtime_r(&timevalData.tv_sec, &timeData) == NULL)
     {
+        DOCA_LOG_INFO("localtime_r ERROR");
         return -1;
     }
 
