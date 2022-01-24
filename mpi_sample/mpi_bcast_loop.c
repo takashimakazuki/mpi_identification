@@ -3,10 +3,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#define EXECUTION_TIME 60 // 実行時間(s)
+#define BCAST_LOOP 100
+#define SEND_LOOP 100
 
 int main(int argc, char **argv)
 {
+    MPI_Status status;
     // Initialize the MPI environment
     MPI_Init(&argc, &argv);
 
@@ -19,15 +21,31 @@ int main(int argc, char **argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
     int number;
-    time_t start_t;
-    time_t now_t;
-    time(&start_t);
-    time(&now_t);
-    while (difftime(now_t, start_t) < EXECUTION_TIME)
+
+    int batch_size = 100;
+    for (int batch_index = 0; batch_index < batch_size; batch_index++)
     {
-        sleep(1);
-        MPI_Bcast(&number, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        time(&now_t);
+        for (int i = 0; i < SEND_LOOP; i++)
+        {
+            for (int loop = 0; loop < 1000000; loop++)
+            {
+                number++;
+            }
+
+            if (world_rank == 0)
+            {
+                MPI_Send(&number, 1, MPI_INT, 1, 0xa0 + batch_index, MPI_COMM_WORLD);
+            }
+            else if (world_rank == 1)
+            {
+                MPI_Recv(&number, 1, MPI_INT, 0, 0xa0 + batch_index, MPI_COMM_WORLD, &status);
+            }
+        }
+
+        if (world_rank == 0)
+        {
+            printf("finish batch %d\n", batch_index);
+        }
     }
 
     // Finalize the MPI environment.
