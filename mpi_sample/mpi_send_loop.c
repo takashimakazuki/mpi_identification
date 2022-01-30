@@ -3,7 +3,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BCAST_LOOP 100
 #define SEND_LOOP 100
 
 int main(int argc, char **argv)

@@ -21,7 +21,7 @@ DOCA_LOG_REGISTER(MPI_LOGGER);
 // ログファイル名
 #define LOG_FILE_NAME "mpipacket_analyze_test"
 // バッファするログの数
-#define LOG_BUF_LINE_MAX 1000
+#define LOG_BUF_LINE_MAX 2000
 // ログ一行のサイズ上限 (EAGER_SENDのログが128byteだったため，余裕を持たせて150byteとした)
 #define LOG_BUF_LINE_SIZE 150
 
@@ -43,8 +43,6 @@ void init_mpilog_buf()
     memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
 }
 
-// TODO: うまく動作しているか検証
-// - 1件のログが生成される通信を行った後にmpiidを停止する．このとき，ログがファイルに出力されていることを確認する
 void flush_mpilog_buf(uint32_t core_id)
 {
     int ret;             // 戻り値
@@ -203,7 +201,7 @@ void putLog(char *format, ...)
     else
     {
         // ログをファイル出力
-        for (int i = 0; i < LOG_BUF_LINE_MAX; i++)
+        for (int i = 0; i < mpilog_buf_line_cnt; i++)
         {
             fprintf(fp, "%s", mpilog_buf[i]);
         }

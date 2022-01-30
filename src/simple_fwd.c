@@ -63,7 +63,7 @@ DOCA_LOG_REGISTER(SIMPLE_FWD);
 // #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
-#define VNF_RX_BURST_SIZE (4)
+#define VNF_RX_BURST_SIZE (10)
 
 uint16_t nr_queues = 4;
 uint16_t rx_only;
@@ -145,9 +145,7 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 		return;
 	}
 
-	if (
-		(ntohs(tcph->source) >= 50000 && ntohs(tcph->source) <= 50100) ||
-		(ntohs(tcph->dest) >= 50000 && ntohs(tcph->dest) <= 50100))
+	if (ntohs(tcph->dest) >= 50000 && ntohs(tcph->dest) <= 50100)
 	{
 		// 型キャスト
 		pkt = (MPIDI_CH3_Pkt_t *)l4_payload;
@@ -279,17 +277,6 @@ static int simple_fwd_process_pkts(void *p)
 	last_tsc = rte_rdtsc();
 	while (!force_quit)
 	{
-		// if (core_id == 0)
-		// {
-			// 統計情報の出力
-			// cur_tsc = rte_rdtsc();
-			// if (cur_tsc > last_tsc + stats_timer)
-			// {
-			// 	// simple_fwd_dump_port_stats(0);
-			// 	DOCA_LOG_INFO("core %u living", core_id);
-			// 	last_tsc = cur_tsc;
-			// }
-		// }
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
 			queue_id = params->queues[port_id];
@@ -301,9 +288,9 @@ static int simple_fwd_process_pkts(void *p)
 			for (j = 0; j < nb_rx; j++)
 			{
 				mbufs_cpy[j] = mbufs[j];
-				// パケット送信，mbufの解放
-				rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, &mbufs[j], 1);
 			}
+			// パケット送信，mbufの解放
+			rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
 
 			for (j = 0; j < nb_rx; j++)
 			{
@@ -545,11 +532,13 @@ int main(int argc, char **argv)
 			core_params_arr[i].core_id);
 	}
 
+#ifdef DEBUG
 	printPacketTypeEnum();
+#endif
 	if (!me)
-		rte_eal_mp_wait_lcore();
+		rte_eal_mp_wait_lcore(); // メインスレッドは停止処理を待つ
 	else
-		simple_fwd_process_pkts(&core_params_arr[rte_lcore_id()]);
+		simple_fwd_process_pkts(&core_params_arr[rte_lcore_id()]); // メインスレッド以外はパケット解析処理を行う
 
 	RTE_ETH_FOREACH_DEV(port_id)
 	simple_fwd_close_port(port_id);
