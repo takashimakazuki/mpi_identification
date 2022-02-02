@@ -75,7 +75,7 @@ void flush_mpilog_buf(uint32_t core_id)
 
     ret = pthread_mutex_unlock(&mutexLog);
 
-    DOCA_LOG_DBG("core_id %u buffer is flushed!", core_id);
+    DOCA_LOG_INFO("core_id %u buffer is flushed!", core_id);
 }
 
 // TODO: BOFの危険あり．dateTimeLenで出力文字数の制限を行う．
@@ -151,11 +151,13 @@ void putLog(char *format, ...)
         return;
     }
 
+    // ============ 以下ファイル出力処理 ================
     ret = pthread_mutex_lock(&mutexLog);
 
     //  ファイル名の取得
     memset(fileName, 0x0, sizeof(fileName));
     sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
+    DOCA_LOG_INFO("write MPI log mpilog_buf_line_cnt=%d, (%s)", mpilog_buf_line_cnt, fileName);
     ret = stat(fileName, &stStat);
     if (ret != 0)
     {
@@ -197,6 +199,8 @@ void putLog(char *format, ...)
     {
         // ファイルオープンエラーの場合
         // ログを出力しない
+        memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
+        mpilog_buf_line_cnt = 0;
     }
     else
     {

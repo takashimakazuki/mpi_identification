@@ -63,7 +63,7 @@ DOCA_LOG_REGISTER(SIMPLE_FWD);
 // #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
-#define VNF_RX_BURST_SIZE (10)
+#define VNF_RX_BURST_SIZE (512)
 
 uint16_t nr_queues = 4;
 uint16_t rx_only;
@@ -81,6 +81,7 @@ struct vnf_per_core_params
 	int queues[NUM_OF_PORTS];
 	int core_id;
 	bool used;
+	struct rte_ring *ring; // スレッド間でのパケット受け渡しを行うRingキュー
 };
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
@@ -243,6 +244,15 @@ static void vnf_adjust_mbuf(struct rte_mbuf *m,
 
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
+	// FIXME workerスレッドのこれ以降の処理でSegmentation faultが発生している
+	// 候補
+	// - mpiid_process_offload関数
+	//   - simple_fwd_parse_packet
+	//   - vnf_adjust_mbuf
+	//   - vnf->vnf_process_pkt
+	// - putLog関数内
+	//   -
+
 	// 各レイヤのヘッダの位置などの情報
 	struct simple_fwd_pkt_info pinfo;
 
@@ -263,42 +273,54 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 	vnf_adjust_mbuf(mbuf, &pinfo);
 }
 
-static int simple_fwd_process_pkts(void *p)
+static int poll_packet_thread_fn(void *p)
 {
 	uint64_t cur_tsc, last_tsc;
 	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
-	struct rte_mbuf *mbufs_cpy[VNF_RX_BURST_SIZE];
-	uint16_t j, nb_rx, queue_id;
+	uint16_t j, nb_rx, nb_tx, nb_ring, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 
-	DOCA_LOG_INFO("core %u process queue %u start", core_id,
-				  params->queues[port_id]);
-	last_tsc = rte_rdtsc();
+	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
 	{
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
 			queue_id = params->queues[port_id];
-			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs,
-									 VNF_RX_BURST_SIZE);
+			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, VNF_RX_BURST_SIZE);
 
-			// パケット受信から送信までの時間を短縮するため，
-			// rte_eth_rx_burstで受け取ったmbufはコピーし，以降のパケット参照時にはコピーしたmbufs_cpyを使用する
-			for (j = 0; j < nb_rx; j++)
-			{
-				mbufs_cpy[j] = mbufs[j];
-			}
+			nb_ring = rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+
 			// パケット送信，mbufの解放
-			rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
-
-			for (j = 0; j < nb_rx; j++)
+			nb_tx = rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
+			if (nb_tx < nb_rx)
 			{
-				if (hw_offload && !core_id)
+				for (int i = nb_tx; i < nb_rx; i++)
 				{
-					mpiid_process_offload(mbufs_cpy[j]);
+					rte_pktmbuf_free(mbufs[i]);
 				}
 			}
+		}
+	}
+	return 0;
+}
+
+static int worker_thread_fn(void *p)
+{
+	uint64_t cur_tsc, last_tsc;
+	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
+	uint16_t j, nb_rx, queue_id;
+	uint32_t port_id = 0, core_id = rte_lcore_id();
+	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
+
+	DOCA_LOG_INFO("core %u process start (worker_thread_fn)", core_id);
+	while (!force_quit)
+	{
+		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE / 2, NULL);
+
+		for (j = 0; j < nb_rx; j++)
+		{
+			mpiid_process_offload(mbufs[j]);
 		}
 	}
 
@@ -411,7 +433,7 @@ simple_fwd_info_parse_args(int argc, char **argv)
 }
 
 static int
-adjust_queue_by_fwd(uint16_t nb_queues)
+adjust_queue_by_fwd(uint16_t nb_queues, struct rte_ring *ring)
 {
 	int i, core_idx = 0;
 
@@ -426,6 +448,7 @@ adjust_queue_by_fwd(uint16_t nb_queues)
 			core_params_arr[core_idx].queues[1] = core_idx;
 			core_params_arr[core_idx].core_id = i;
 			core_params_arr[core_idx].used = true;
+			core_params_arr[core_idx].ring = ring;
 			core_idx++;
 		}
 	}
@@ -460,6 +483,17 @@ void printPacketTypeEnum()
 	DOCA_LOG_DBG("+=====================================+");
 }
 
+struct rte_ring *create_ring()
+{
+	struct rte_ring *ring;
+	ring = rte_ring_create("wk_ring0", 4096, rte_socket_id(), RING_F_SP_ENQ);
+	if (ring == NULL)
+	{
+		rte_exit(EXIT_FAILURE, "Cannot create rx/tx ring\n");
+	}
+	return ring;
+}
+
 int gLogCurNo;
 
 int main(int argc, char **argv)
@@ -469,6 +503,7 @@ int main(int argc, char **argv)
 	uint16_t port_id;
 	struct simple_fwd_port_cfg port_cfg = {0};
 	bool me = false;
+	struct rte_ring *ring;
 
 	// Logger初期化
 	gLogCurNo = 0;
@@ -500,7 +535,10 @@ int main(int argc, char **argv)
 
 	if (nb_queues > nr_queues)
 		nb_queues = nr_queues;
-	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues);
+
+	// スレッド間でのパケット受け渡し用のRing作成
+	ring = create_ring();
+	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues, ring);
 	port_cfg.is_hairpin = is_hairpin;
 	port_cfg.nb_desc = nr_desc;
 	RTE_ETH_FOREACH_DEV(port_id)
@@ -526,19 +564,16 @@ int main(int argc, char **argv)
 			continue;
 		}
 		// スレッドを作成
-		rte_eal_remote_launch(
-			(lcore_function_t *)simple_fwd_process_pkts,
-			&core_params_arr[i],
-			core_params_arr[i].core_id);
+		// rte_eal_remote_launch(
+		// 	(lcore_function_t *)worker_thread_fn,
+		// 	&core_params_arr[i],
+		// 	core_params_arr[i].core_id);
 	}
 
 #ifdef DEBUG
 	printPacketTypeEnum();
 #endif
-	if (!me)
-		rte_eal_mp_wait_lcore(); // メインスレッドは停止処理を待つ
-	else
-		simple_fwd_process_pkts(&core_params_arr[rte_lcore_id()]); // メインスレッド以外はパケット解析処理を行う
+	poll_packet_thread_fn(&core_params_arr[rte_lcore_id()]);
 
 	RTE_ETH_FOREACH_DEV(port_id)
 	simple_fwd_close_port(port_id);
