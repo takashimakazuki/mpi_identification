@@ -37,7 +37,6 @@ sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_q
 
 ## ログファイル出力のバッファリング
 
-- fopen, fcloseを使うとバッファのflushが自動で行われるため，ログ出力のバッファリングは行われない
 - putLogのフロー
 	1. バッファされている文字列長buf_lenを取得
 	1. if buf_len > LOG_BUF_SIZE
@@ -53,13 +52,4 @@ sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_q
 パケット受信→解析処理→送信の順番で実行すると，解析処理の時間がかかってしまうため，通信遅延時間が大きくなる．
 
 通信遅延時間短縮を目的の一つとしているため，パケット受信→送信までの時間をできるだけ短くする必要がある．
-そこで以下のような処理順序に変更する．
 
-1. パケット受信 rx_burst()
-    - ここでmbufが確保される
-2. パケットをコピー　
-    - pkt_cpyのメモリを確保
-    - mbufの内容をpkt_cpyにコピー
-3. パケットを送信 tx_burst()
-    - ここでmbufが開放される(tx_burstが成功すると自動で解放される仕様)
-4. パケットの解析処理
