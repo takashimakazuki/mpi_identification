@@ -39,7 +39,7 @@ struct simple_fwd_pipe_entry
 	struct doca_flow_pipe_entry *hw_entry;
 };
 
-struct app_vnf *
-simple_fwd_get_doca_vnf(void);
+// struct app_vnf *
+// simple_fwd_get_doca_vnf(void);
 
 #endif

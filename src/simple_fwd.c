@@ -63,7 +63,7 @@ DOCA_LOG_REGISTER(SIMPLE_FWD);
 // #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
-#define VNF_RX_BURST_SIZE (512)
+#define VNF_RX_BURST_SIZE (64)
 
 uint16_t nr_queues = 4;
 uint16_t rx_only;
@@ -71,7 +71,6 @@ uint16_t hw_offload = 1;
 uint64_t stats_timer = 100000;
 uint16_t is_hairpin;
 uint16_t nr_desc = 512;
-static struct app_vnf *vnf;
 static volatile bool force_quit;
 
 // 論理コアごとの設定項目
@@ -209,14 +208,6 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
 		{
 			MPIDI_CH3_Pkt_eager_sync_send_t *eagersync_send = &pkt->eager_sync_send;
-			// putLog("EAGERSYNC_SEND, %s type=%d, tag=%d, rank=%d, context_id=%d, size=%d func=%s",
-			// 	   ip_str_buf,
-			// 	   eagersync_send->type,
-			// 	   eagersync_send->match.parts.tag,
-			// 	   eagersync_send->match.parts.rank,
-			// 	   eagersync_send->match.parts.context_id,
-			// 	   eagersync_send->data_sz,
-			// 	   get_mpifunc_string(eagersync_send->match.parts.tag));
 		}
 		default:
 		{
@@ -244,15 +235,6 @@ static void vnf_adjust_mbuf(struct rte_mbuf *m,
 
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
-	// FIXME workerスレッドのこれ以降の処理でSegmentation faultが発生している
-	// 候補
-	// - mpiid_process_offload関数
-	//   - simple_fwd_parse_packet
-	//   - vnf_adjust_mbuf
-	//   - vnf->vnf_process_pkt
-	// - putLog関数内
-	//   -
-
 	// 各レイヤのヘッダの位置などの情報
 	struct simple_fwd_pkt_info pinfo;
 
@@ -267,10 +249,10 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 	pinfo.rss_hash = mbuf->hash.rss;
 	if (pinfo.outer.l3_type != IPV4)
 		return;
-	vnf->vnf_process_pkt(&pinfo);
+	// vnf->vnf_process_pkt(&pinfo);
 	analyze_packets(&pinfo);
 
-	vnf_adjust_mbuf(mbuf, &pinfo);
+	// vnf_adjust_mbuf(mbuf, &pinfo);
 }
 
 static int poll_packet_thread_fn(void *p)
@@ -281,15 +263,20 @@ static int poll_packet_thread_fn(void *p)
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 
+
 	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
 	{
+
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
 			queue_id = params->queues[port_id];
 			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, VNF_RX_BURST_SIZE);
 
-			nb_ring = rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+			if (likely(nb_rx > 0))
+			{
+				nb_ring = rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+			}
 
 			// パケット送信，mbufの解放
 			nb_tx = rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
@@ -302,21 +289,25 @@ static int poll_packet_thread_fn(void *p)
 			}
 		}
 	}
+
 	return 0;
 }
 
 static int worker_thread_fn(void *p)
 {
 	uint64_t cur_tsc, last_tsc;
-	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
-	uint16_t j, nb_rx, queue_id;
+	struct rte_mbuf *mbufs[4];
+	uint16_t j, nb_rx;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
-
 	DOCA_LOG_INFO("core %u process start (worker_thread_fn)", core_id);
+
+	// MPIログ出力初期化処理
+	init_mpilog_buf();
+
 	while (!force_quit)
 	{
-		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE / 2, NULL);
+		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, 4, NULL);
 
 		for (j = 0; j < nb_rx; j++)
 		{
@@ -552,8 +543,6 @@ int main(int argc, char **argv)
 		simple_fwd_hairpin_bind();
 
 	// グローバル変数vnfの設定
-	vnf = simple_fwd_get_doca_vnf();
-	vnf->vnf_init((void *)&port_cfg); // simple_fwd_init();
 	for (i = 0; i < RTE_MAX_LCORE; i++)
 	{
 		if (!core_params_arr[i].used)
@@ -564,10 +553,10 @@ int main(int argc, char **argv)
 			continue;
 		}
 		// スレッドを作成
-		// rte_eal_remote_launch(
-		// 	(lcore_function_t *)worker_thread_fn,
-		// 	&core_params_arr[i],
-		// 	core_params_arr[i].core_id);
+		rte_eal_remote_launch(
+			(lcore_function_t *)worker_thread_fn,
+			&core_params_arr[i],
+			core_params_arr[i].core_id);
 	}
 
 #ifdef DEBUG
@@ -577,6 +566,5 @@ int main(int argc, char **argv)
 
 	RTE_ETH_FOREACH_DEV(port_id)
 	simple_fwd_close_port(port_id);
-	vnf->vnf_destroy();
 	return 0;
 }

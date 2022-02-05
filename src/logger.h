@@ -23,6 +23,7 @@ extern int gLogCurNo;
 
 extern INI_VALUE_LOG gIniValLog;
 
+void init_mpilog_buf();
 void getCurrentLogFileNo(int fileType);
 void putLog(char *format, ...);
 void flush_mpilog_buf();

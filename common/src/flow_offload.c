@@ -578,7 +578,7 @@ dpdk_init(int *argc, char **argv[], unsigned int *nb_cores, unsigned int *nb_por
 		APP_EXIT("At least 2 Cores are a needed to run, available_cores=%d", *nb_cores);
 
 	/* 1 Core is reserved to the main thread */
-	*nb_cores -= 1;
+	// *nb_cores -= 1;
 
 	/* Check that there are only 2 ports to send/receive on */
 	*nb_ports = rte_eth_dev_count_avail();

@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <rte_common.h>
+#include <rte_lcore.h>
 #include <doca_log.h>
 
 #include "logger.h"
@@ -21,7 +22,7 @@ DOCA_LOG_REGISTER(MPI_LOGGER);
 // ログファイル名
 #define LOG_FILE_NAME "mpipacket_analyze_test"
 // バッファするログの数
-#define LOG_BUF_LINE_MAX 2000
+#define LOG_BUF_LINE_MAX 1000
 // ログ一行のサイズ上限 (EAGER_SENDのログが128byteだったため，余裕を持たせて150byteとした)
 #define LOG_BUF_LINE_SIZE 150
 
@@ -34,12 +35,13 @@ INI_VALUE_LOG gIniValLog;
 // ログファイル排他用ミューテックス
 pthread_mutex_t mutexLog = PTHREAD_MUTEX_INITIALIZER;
 
-// ログをファイル出力前に保存するバッファ
-char mpilog_buf[LOG_BUF_LINE_MAX][LOG_BUF_LINE_SIZE];
-int mpilog_buf_line_cnt = 0;
+// ログをファイル出力前に保存するバッファ, スレッド毎に異なるメモリ領域をもつ
+__thread char mpilog_buf[LOG_BUF_LINE_MAX][LOG_BUF_LINE_SIZE];
+__thread int mpilog_buf_line_cnt = 0;
 
 void init_mpilog_buf()
 {
+    mpilog_buf_line_cnt = 0;
     memset(mpilog_buf, 0x0, sizeof(mpilog_buf));
 }
 
@@ -98,7 +100,7 @@ int getDateTime(char *format, int dateTimeLen, char *dateTime)
         return -1;
     }
 
-    sprintf(dateTime, format,
+    snprintf(dateTime, dateTimeLen, format,
             timeData.tm_year + 1900,
             timeData.tm_mon + 1,
             timeData.tm_mday,
@@ -157,7 +159,11 @@ void putLog(char *format, ...)
     //  ファイル名の取得
     memset(fileName, 0x0, sizeof(fileName));
     sprintf(fileName, "%s/%s.log.%d", gIniValLog.logFilePathName, LOG_FILE_NAME, gLogCurNo);
-    DOCA_LOG_INFO("write MPI log mpilog_buf_line_cnt=%d, (%s)", mpilog_buf_line_cnt, fileName);
+
+// #ifdef DEBUG
+    // DOCA_LOG_INFO("(core %u)write MPI log mpilog_buf_line_cnt=%d, (%s)", rte_lcore_id(), mpilog_buf_line_cnt, fileName);
+// #endif
+
     ret = stat(fileName, &stStat);
     if (ret != 0)
     {
