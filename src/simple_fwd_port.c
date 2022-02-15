@@ -90,7 +90,7 @@ int simple_fwd_start_dpdk_port(struct simple_fwd_port_cfg *port_info)
 
 	if (mbuf_pool == NULL)
 	{
-		nb_mbufs = NUM_OF_PORTS * nr_queues * 512;
+		nb_mbufs = NUM_OF_PORTS * nr_queues * 2048;
 		mbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
 											nb_mbufs, MEMPOOL_CACHE_SIZE, 0,
 											RTE_MBUF_DEFAULT_BUF_SIZE,

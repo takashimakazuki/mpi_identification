@@ -176,14 +176,14 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 #endif
 			break;
 		}
-		case MPIDI_CH3_PKT_RNDV_REQ_TO_SEND:
-		{
-			break;
-		}
-		case MPIDI_CH3_PKT_RNDV_SEND:
-		{
-			break;
-		}
+		// case MPIDI_CH3_PKT_RNDV_REQ_TO_SEND:
+		// {
+		// 	break;
+		// }
+		// case MPIDI_CH3_PKT_RNDV_SEND:
+		// {
+		// 	break;
+		// }
 		case MPIDI_CH3_PKT_EAGER_SEND:
 		{
 #ifdef DEBUG
@@ -208,6 +208,33 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 		case MPIDI_CH3_PKT_EAGER_SYNC_SEND:
 		{
 			MPIDI_CH3_Pkt_eager_sync_send_t *eagersync_send = &pkt->eager_sync_send;
+			putLog("EAGER_SYNC_SEND\t %s rank=%d size=%d func=%s",
+				   ip_str_buf,
+				   eagersync_send->match.parts.rank,
+				   eagersync_send->data_sz,
+				   get_mpifunc_string(eagersync_send->match.parts.tag));
+		}
+		case MPIDI_CH3_PKT_READY_SEND:
+		{
+			MPIDI_CH3_Pkt_ready_send_t *ready_send = &pkt->ready_send;
+			putLog("READY_SEND\t %s rank=%d size=%d func=%s",
+				   ip_str_buf,
+				   ready_send->match.parts.rank,
+				   ready_send->data_sz,
+				   get_mpifunc_string(ready_send->match.parts.tag));
+			break;
+		}
+		case MPIDI_CH3_PKT_PUT:
+		{
+			MPIDI_CH3_Pkt_put_t *put = &pkt->put;
+			putLog("PUT\t %s", ip_str_buf);
+			break;
+		}
+		case MPIDI_CH3_PKT_GET:
+		{
+			MPIDI_CH3_Pkt_get_t *get = &pkt->get;
+			putLog("GET\t %s", ip_str_buf);
+			break;
 		}
 		default:
 		{
@@ -249,10 +276,7 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 	pinfo.rss_hash = mbuf->hash.rss;
 	if (pinfo.outer.l3_type != IPV4)
 		return;
-	// vnf->vnf_process_pkt(&pinfo);
 	analyze_packets(&pinfo);
-
-	// vnf_adjust_mbuf(mbuf, &pinfo);
 }
 
 static int poll_packet_thread_fn(void *p)
@@ -316,7 +340,6 @@ static int worker_thread_fn(void *p)
 	}
 
 	// 終了処理
-	// MPIログバッファのflush
 	flush_mpilog_buf(core_id);
 	return 0;
 }
