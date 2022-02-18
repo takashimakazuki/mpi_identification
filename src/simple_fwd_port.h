@@ -30,8 +30,4 @@ int simple_fwd_init_port(int port_id, int nr_queues);
 
 void simple_fwd_close_port(int port_id);
 
-void simple_fwd_dump_port_stats(uint16_t port_id);
-
-void simple_fwd_hairpin_bind(void);
-
 #endif

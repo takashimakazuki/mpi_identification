@@ -83,24 +83,10 @@ struct simple_fwd_ft_key
 	uint32_t rss_hash;
 };
 
-int simple_fwd_parse_packet(uint8_t *data, int len,
+int simple_fwd_parse_packet(uint8_t *data,
+							int len,
 							struct simple_fwd_pkt_info *pinfo);
-doca_be32_t
-simple_fwd_pinfo_outer_ipv4_dst(struct simple_fwd_pkt_info *pinfo);
-doca_be32_t
-simple_fwd_pinfo_outer_ipv4_src(struct simple_fwd_pkt_info *pinfo);
-doca_be32_t
-simple_fwd_pinfo_inner_ipv4_src(struct simple_fwd_pkt_info *pinfo);
-doca_be32_t
-simple_fwd_pinfo_inner_ipv4_dst(struct simple_fwd_pkt_info *pinfo);
-doca_be16_t
-simple_fwd_pinfo_inner_src_port(struct simple_fwd_pkt_info *pinfo);
-doca_be16_t
-simple_fwd_pinfo_inner_dst_port(struct simple_fwd_pkt_info *pinfo);
-doca_be16_t
-simple_fwd_pinfo_outer_src_port(struct simple_fwd_pkt_info *pinfo);
-doca_be16_t
-simple_fwd_pinfo_outer_dst_port(struct simple_fwd_pkt_info *pinfo);
+
 void simple_fwd_pinfo_decap(struct simple_fwd_pkt_info *pinfo);
 
 #endif

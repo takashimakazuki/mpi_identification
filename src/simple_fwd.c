@@ -12,7 +12,7 @@
  */
 
 // 実行コマンド
-// sudo ./doca_simple_fwd_vnf -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=4 --stats_timer=2 --log_level=8
+// sudo ./mpiid -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=4 --stats_timer=2 --log_level=8
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +32,8 @@
 #include <stdbool.h>
 #include <netinet/tcp.h>
 #include <netinet/ip.h>
+#include <arpa/inet.h>
+
 
 #include <rte_eal.h>
 #include <rte_common.h>
@@ -48,9 +50,8 @@
 #include "flow_offload.h"
 #include "utils.h"
 #include "app_vnf.h"
-#include "simple_fwd_vnf.h"
-#include "simple_fwd_ft.h"
 #include "simple_fwd_port.h"
+#include "simple_fwd_pkt.h"
 
 #include "mpi.h"
 #include "mpidpre.h"
@@ -66,10 +67,6 @@ DOCA_LOG_REGISTER(SIMPLE_FWD);
 #define VNF_RX_BURST_SIZE (64)
 
 uint16_t nr_queues = 4;
-uint16_t rx_only;
-uint16_t hw_offload = 1;
-uint64_t stats_timer = 100000;
-uint16_t is_hairpin;
 uint16_t nr_desc = 512;
 static volatile bool force_quit;
 
@@ -224,18 +221,6 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 				   get_mpifunc_string(ready_send->match.parts.tag));
 			break;
 		}
-		case MPIDI_CH3_PKT_PUT:
-		{
-			MPIDI_CH3_Pkt_put_t *put = &pkt->put;
-			putLog("PUT\t %s", ip_str_buf);
-			break;
-		}
-		case MPIDI_CH3_PKT_GET:
-		{
-			MPIDI_CH3_Pkt_get_t *get = &pkt->get;
-			putLog("GET\t %s", ip_str_buf);
-			break;
-		}
 		default:
 		{
 		}
@@ -252,13 +237,6 @@ static inline uint64_t simple_fwd_get_time_usec(void)
 	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-static void vnf_adjust_mbuf(struct rte_mbuf *m,
-							struct simple_fwd_pkt_info *pinfo)
-{
-	int diff = pinfo->outer.l2 - VNF_PKT_L2(m);
-
-	rte_pktmbuf_adj(m, diff);
-}
 
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
@@ -281,9 +259,8 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 
 static int poll_packet_thread_fn(void *p)
 {
-	uint64_t cur_tsc, last_tsc;
 	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
-	uint16_t j, nb_rx, nb_tx, nb_ring, queue_id;
+	uint16_t nb_rx, nb_tx, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 
@@ -299,7 +276,7 @@ static int poll_packet_thread_fn(void *p)
 
 			if (likely(nb_rx > 0))
 			{
-				nb_ring = rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+				rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
 			}
 
 			// パケット送信，mbufの解放
@@ -319,10 +296,9 @@ static int poll_packet_thread_fn(void *p)
 
 static int worker_thread_fn(void *p)
 {
-	uint64_t cur_tsc, last_tsc;
-	struct rte_mbuf *mbufs[4];
+	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
 	uint16_t j, nb_rx;
-	uint32_t port_id = 0, core_id = rte_lcore_id();
+	uint32_t core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 	DOCA_LOG_INFO("core %u process start (worker_thread_fn)", core_id);
 
@@ -331,7 +307,7 @@ static int worker_thread_fn(void *p)
 
 	while (!force_quit)
 	{
-		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, 4, NULL);
+		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE, NULL);
 
 		for (j = 0; j < nb_rx; j++)
 		{
@@ -358,11 +334,7 @@ static void simple_fwd_info_usage(const char *prgname)
 {
 	printf("%s [EAL options] --\n"
 		   "  --log_level: set log level\n"
-		   "  --stats_timer: set interval to dump stats information\n"
-		   "  --nr_queues: set queues number\n"
-		   "  --rx_only: set rx_only 0 or 1\n"
-		   "  --hw_offload: set hw offload 0 or 1\n"
-		   "  --hairpinq: set forwarding to hairpin queue\n",
+		   "  --nr_queues: set queues number\n",
 		   prgname);
 }
 
@@ -388,11 +360,7 @@ simple_fwd_info_parse_args(int argc, char **argv)
 	uint32_t log_level = 0;
 	static struct option long_option[] = {
 		{"log_level", 1, NULL, 0},
-		{"stats_timer", 1, NULL, 1},
-		{"nr_queues", 1, NULL, 2},
-		{"rx_only", 1, NULL, 3},
-		{"hw_offload", 1, NULL, 4},
-		{"hairpinq", 0, NULL, 5},
+		{"nr_queues", 1, NULL, 1},
 		{NULL, 0, 0, 0},
 	};
 
@@ -414,10 +382,6 @@ simple_fwd_info_parse_args(int argc, char **argv)
 			doca_log_global_level_set(log_level);
 			break;
 		case 1:
-			stats_timer = simple_fwd_parse_uint32(optarg);
-			printf("set stats_timer:%lu\n", stats_timer);
-			break;
-		case 2:
 			nr_queues = simple_fwd_parse_uint32(optarg);
 			if (nr_queues > 16)
 			{
@@ -425,18 +389,6 @@ simple_fwd_info_parse_args(int argc, char **argv)
 				return -1;
 			}
 			printf("set nr_queues:%u.\n", nr_queues);
-			break;
-		case 3:
-			rx_only = simple_fwd_parse_uint32(optarg);
-			printf("set rx_only:%u.\n", rx_only == 0 ? 0 : 1);
-			break;
-		case 4:
-			hw_offload = simple_fwd_parse_uint32(optarg);
-			printf("set hw_offload:%u.\n", hw_offload == 0 ? 0 : 1);
-			break;
-		case 5:
-			is_hairpin = 1;
-			printf("set is_hairpin:%u.\n", is_hairpin);
 			break;
 		default:
 			simple_fwd_info_usage(prgname);
@@ -516,7 +468,6 @@ int main(int argc, char **argv)
 	uint32_t nb_queues, nb_ports;
 	uint16_t port_id;
 	struct simple_fwd_port_cfg port_cfg = {0};
-	bool me = false;
 	struct rte_ring *ring;
 
 	// Logger初期化
@@ -544,16 +495,12 @@ int main(int argc, char **argv)
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid simple fwd arguments\n");
 
-	/* convert to number of cycles */
-	stats_timer *= rte_get_timer_hz();
-
 	if (nb_queues > nr_queues)
 		nb_queues = nr_queues;
 
 	// スレッド間でのパケット受け渡し用のRing作成
 	ring = create_ring();
 	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues, ring);
-	port_cfg.is_hairpin = is_hairpin;
 	port_cfg.nb_desc = nr_desc;
 	RTE_ETH_FOREACH_DEV(port_id)
 	{
@@ -561,9 +508,6 @@ int main(int argc, char **argv)
 		simple_fwd_start_dpdk_port(&port_cfg);
 	}
 
-	// Hairpin キューの設定
-	if (is_hairpin)
-		simple_fwd_hairpin_bind();
 
 	// グローバル変数vnfの設定
 	for (i = 0; i < RTE_MAX_LCORE; i++)
@@ -572,7 +516,6 @@ int main(int argc, char **argv)
 			continue;
 		if (rte_lcore_id() == core_params_arr[i].core_id)
 		{
-			me = true;
 			continue;
 		}
 		// スレッドを作成

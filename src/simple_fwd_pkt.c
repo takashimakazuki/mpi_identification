@@ -27,84 +27,8 @@ DOCA_LOG_REGISTER(SIMPLE_FWD_PKT);
 #define GTP_ESPN_FLAGS_ON(p) (p & 0x7)
 #define GTP_EXT_FLAGS_ON(p) (p & 0x4)
 
-doca_be32_t
-simple_fwd_pinfo_outer_ipv4_dst(struct simple_fwd_pkt_info *pinfo)
-{
-	return ((struct rte_ipv4_hdr *)pinfo->outer.l3)->dst_addr;
-}
 
-doca_be32_t
-simple_fwd_pinfo_outer_ipv4_src(struct simple_fwd_pkt_info *pinfo)
-{
-	return ((struct rte_ipv4_hdr *)pinfo->outer.l3)->src_addr;
-}
-
-doca_be32_t
-simple_fwd_pinfo_inner_ipv4_dst(struct simple_fwd_pkt_info *pinfo)
-{
-	return ((struct rte_ipv4_hdr *)pinfo->inner.l3)->dst_addr;
-}
-
-doca_be32_t
-simple_fwd_pinfo_inner_ipv4_src(struct simple_fwd_pkt_info *pinfo)
-{
-	return ((struct rte_ipv4_hdr *)pinfo->inner.l3)->src_addr;
-}
-
-static doca_be16_t
-simple_fwd_pinfo_src_port(struct simple_fwd_pkt_format *fmt)
-{
-	switch (fmt->l4_type)
-	{
-	case DOCA_PROTO_TCP:
-		return ((struct rte_tcp_hdr *)fmt->l4)->src_port;
-	case DOCA_PROTO_UDP:
-		return ((struct rte_udp_hdr *)fmt->l4)->src_port;
-	default:
-		return 0;
-	}
-}
-
-static doca_be16_t
-simple_fwd_pinfo_dst_port(struct simple_fwd_pkt_format *fmt)
-{
-	switch (fmt->l4_type)
-	{
-	case DOCA_PROTO_TCP:
-		return ((struct rte_tcp_hdr *)fmt->l4)->dst_port;
-	case DOCA_PROTO_UDP:
-		return ((struct rte_udp_hdr *)fmt->l4)->dst_port;
-	default:
-		return 0;
-	}
-}
-
-doca_be16_t
-simple_fwd_pinfo_inner_src_port(struct simple_fwd_pkt_info *pinfo)
-{
-	return simple_fwd_pinfo_src_port(&pinfo->inner);
-}
-
-doca_be16_t
-simple_fwd_pinfo_inner_dst_port(struct simple_fwd_pkt_info *pinfo)
-{
-	return simple_fwd_pinfo_dst_port(&pinfo->inner);
-}
-
-doca_be16_t
-simple_fwd_pinfo_outer_src_port(struct simple_fwd_pkt_info *pinfo)
-{
-	return simple_fwd_pinfo_src_port(&pinfo->outer);
-}
-
-doca_be16_t
-simple_fwd_pinfo_outer_dst_port(struct simple_fwd_pkt_info *pinfo)
-{
-	return simple_fwd_pinfo_dst_port(&pinfo->outer);
-}
-
-static int
-simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
+static int simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
 							struct simple_fwd_pkt_format *fmt)
 {
 	struct rte_ether_hdr *eth = NULL;
@@ -186,8 +110,7 @@ simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
 	return 0;
 }
 
-static int
-simple_fwd_parse_is_tun(struct simple_fwd_pkt_info *pinfo)
+static int simple_fwd_parse_is_tun(struct simple_fwd_pkt_info *pinfo)
 {
 	if (pinfo->outer.l3_type != IPV4)
 		return 0;
@@ -316,21 +239,3 @@ int simple_fwd_parse_packet(uint8_t *data, int len,
 	return 0;
 }
 
-void simple_fwd_pinfo_decap(struct simple_fwd_pkt_info *pinfo)
-{
-	switch (pinfo->tun_type)
-	{
-	case DOCA_FLOW_TUN_GRE:
-		DOCA_LOG_ERR("decap for GRE not supported");
-		break;
-	case DOCA_FLOW_TUN_VXLAN:
-		pinfo->outer.l2 = pinfo->inner.l2;
-		pinfo->outer.l3 = pinfo->inner.l3;
-		pinfo->outer.l4 = pinfo->inner.l4;
-		pinfo->outer.l7 = pinfo->inner.l7;
-		pinfo->tun_type = DOCA_FLOW_TUN_NONE;
-		break;
-	default:
-		break;
-	}
-}
