@@ -19,7 +19,7 @@
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_net.h>
-#include "simple_fwd_port.h"
+#include "mpiid_port.h"
 #include "doca_log.h"
 #include "doca_flow.h"
 

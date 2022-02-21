@@ -20,7 +20,7 @@
 #include <rte_gtp.h>
 #include <rte_vxlan.h>
 #include <doca_log.h>
-#include "simple_fwd_pkt.h"
+#include "mpiid_pkt.h"
 
 DOCA_LOG_REGISTER(SIMPLE_FWD_PKT);
 

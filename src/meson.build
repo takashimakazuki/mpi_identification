@@ -51,9 +51,9 @@ libflow_dep = dependency('doca-flow', required : true)
 libcommon_dep = dependency('doca-common', required : true)
 
 sources = [
-	'simple_fwd_pkt.c',
-	'simple_fwd_port.c',
-	'simple_fwd.c',
+	'mpiid_pkt.c',
+	'mpiid_port.c',
+	'mpiid.c',
 	'logger.c',
 	'./../common/src/flow_offload.c',
 	'./../common/src/utils.c',

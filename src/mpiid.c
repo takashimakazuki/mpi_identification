@@ -34,7 +34,6 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 
-
 #include <rte_eal.h>
 #include <rte_common.h>
 #include <rte_malloc.h>
@@ -50,8 +49,8 @@
 #include "flow_offload.h"
 #include "utils.h"
 #include "app_vnf.h"
-#include "simple_fwd_port.h"
-#include "simple_fwd_pkt.h"
+#include "mpiid_port.h"
+#include "mpiid_pkt.h"
 
 #include "mpi.h"
 #include "mpidpre.h"
@@ -237,7 +236,6 @@ static inline uint64_t simple_fwd_get_time_usec(void)
 	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
-
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
 	// 各レイヤのヘッダの位置などの情報
@@ -263,7 +261,6 @@ static int poll_packet_thread_fn(void *p)
 	uint16_t nb_rx, nb_tx, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
-
 
 	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
@@ -449,6 +446,9 @@ void printPacketTypeEnum()
 	DOCA_LOG_DBG("+=====================================+");
 }
 
+// Ringキューの作成
+// mainスレッドは取得したパケットを全てこのRingキューにエンキューする
+// workerスレッドはRingキューからパケットを取り出してログ抽出処理を行う
 struct rte_ring *create_ring()
 {
 	struct rte_ring *ring;
@@ -507,7 +507,6 @@ int main(int argc, char **argv)
 		port_cfg.port_id = port_id;
 		simple_fwd_start_dpdk_port(&port_cfg);
 	}
-
 
 	// グローバル変数vnfの設定
 	for (i = 0; i < RTE_MAX_LCORE; i++)
