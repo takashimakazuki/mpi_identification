@@ -23,7 +23,7 @@
 #include "doca_log.h"
 #include "doca_flow.h"
 
-DOCA_LOG_REGISTER(SIMPLE_FWD_PORT);
+DOCA_LOG_REGISTER(mpiid_PORT);
 
 #define CHECK_INTERVAL 1000 /* 100ms */
 #define MAX_REPEAT_TIMES 90 /* 9s (90 * 100ms) in total */
@@ -38,7 +38,7 @@ DOCA_LOG_REGISTER(SIMPLE_FWD_PORT);
 struct rte_mempool *mbuf_pool;
 
 static void
-simple_fwd_assert_link_status(int port_id)
+mpiid_assert_link_status(int port_id)
 {
 	struct rte_eth_link link;
 	uint8_t rep_cnt = MAX_REPEAT_TIMES;
@@ -60,7 +60,7 @@ simple_fwd_assert_link_status(int port_id)
 		rte_exit(EXIT_FAILURE, ":: error: link is still down\n");
 }
 
-int simple_fwd_start_dpdk_port(struct simple_fwd_port_cfg *port_info)
+int mpiid_start_dpdk_port(struct mpiid_port_cfg *port_info)
 {
 	int ret;
 	uint16_t i, total_queues, rxq;
@@ -198,12 +198,12 @@ int simple_fwd_start_dpdk_port(struct simple_fwd_port_cfg *port_info)
 				 ret,
 				 port_info->port_id);
 	}
-	simple_fwd_assert_link_status(port_info->port_id);
+	mpiid_assert_link_status(port_info->port_id);
 	DOCA_LOG_INFO("initializing port_info: %d done", port_info->port_id);
 	return 0;
 }
 
-void simple_fwd_close_port(int port_id)
+void mpiid_close_port(int port_id)
 {
 	struct rte_flow_error error;
 

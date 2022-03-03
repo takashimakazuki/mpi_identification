@@ -15,11 +15,11 @@
 
 #include <stdint.h>
 
-struct simple_fwd_pkt_info;
+struct mpiid_pkt_info;
 
 struct app_vnf {
 	int (*vnf_init)(void *p);
-	int (*vnf_process_pkt)(struct simple_fwd_pkt_info *pinfo);
+	int (*vnf_process_pkt)(struct mpiid_pkt_info *pinfo);
 	int (*vnf_destroy)(void);
 };
 

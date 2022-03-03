@@ -11,8 +11,8 @@
  *
  */
 
-#ifndef _SIMPLE_FWD_PKT_H_
-#define _SIMPLE_FWD_PKT_H_
+#ifndef _mpiid_PKT_H_
+#define _mpiid_PKT_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -21,7 +21,7 @@
 #define IPV4 (4)
 #define IPV6 (6)
 
-struct simple_fwd_pkt_format
+struct mpiid_pkt_format
 {
 
 	// 各レイヤデータの先頭
@@ -36,7 +36,7 @@ struct simple_fwd_pkt_format
 	uint8_t *l7;
 };
 
-struct simple_fwd_pkt_tun_format
+struct mpiid_pkt_tun_format
 {
 	doca_be32_t vni;
 	bool l2;
@@ -57,20 +57,20 @@ struct simple_fwd_pkt_tun_format
  *  points to relevant point in packet and
  *  classify it.
  */
-struct simple_fwd_pkt_info
+struct mpiid_pkt_info
 {
 	void *orig_data;
 	uint16_t orig_port_id;
 	uint32_t rss_hash;
 
-	struct simple_fwd_pkt_format outer; // VXLANの外側のパケット
+	struct mpiid_pkt_format outer; // VXLANの外側のパケット
 	enum doca_flow_tun_type tun_type;
-	struct simple_fwd_pkt_tun_format tun;
-	struct simple_fwd_pkt_format inner; // VXLANの内部パケット
+	struct mpiid_pkt_tun_format tun;
+	struct mpiid_pkt_format inner; // VXLANの内部パケット
 	int len;
 };
 
-struct simple_fwd_ft_key
+struct mpiid_ft_key
 {
 	doca_be32_t ipv4_1;
 	doca_be32_t ipv4_2;
@@ -83,10 +83,10 @@ struct simple_fwd_ft_key
 	uint32_t rss_hash;
 };
 
-int simple_fwd_parse_packet(uint8_t *data,
+int mpiid_parse_packet(uint8_t *data,
 							int len,
-							struct simple_fwd_pkt_info *pinfo);
+							struct mpiid_pkt_info *pinfo);
 
-void simple_fwd_pinfo_decap(struct simple_fwd_pkt_info *pinfo);
+void mpiid_pinfo_decap(struct mpiid_pkt_info *pinfo);
 
 #endif

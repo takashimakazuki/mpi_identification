@@ -22,14 +22,14 @@
 #include <doca_log.h>
 #include "mpiid_pkt.h"
 
-DOCA_LOG_REGISTER(SIMPLE_FWD_PKT);
+DOCA_LOG_REGISTER(mpiid_PKT);
 
 #define GTP_ESPN_FLAGS_ON(p) (p & 0x7)
 #define GTP_EXT_FLAGS_ON(p) (p & 0x4)
 
 
-static int simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
-							struct simple_fwd_pkt_format *fmt)
+static int mpiid_parse_pkt_format(uint8_t *data, int len, bool l2,
+							struct mpiid_pkt_format *fmt)
 {
 	struct rte_ether_hdr *eth = NULL;
 	struct rte_ipv4_hdr *iphdr;
@@ -110,7 +110,7 @@ static int simple_fwd_parse_pkt_format(uint8_t *data, int len, bool l2,
 	return 0;
 }
 
-static int simple_fwd_parse_is_tun(struct simple_fwd_pkt_info *pinfo)
+static int mpiid_parse_is_tun(struct mpiid_pkt_info *pinfo)
 {
 	if (pinfo->outer.l3_type != IPV4)
 		return 0;
@@ -193,8 +193,8 @@ static int simple_fwd_parse_is_tun(struct simple_fwd_pkt_info *pinfo)
  *
  * @return 0 on success and error otherwise.
  */
-int simple_fwd_parse_packet(uint8_t *data, int len,
-							struct simple_fwd_pkt_info *pinfo)
+int mpiid_parse_packet(uint8_t *data, int len,
+							struct mpiid_pkt_info *pinfo)
 {
 	int off = 0;
 	int inner_off = 0;
@@ -205,11 +205,11 @@ int simple_fwd_parse_packet(uint8_t *data, int len,
 		return -1;
 	}
 	pinfo->len = len;
-	if (simple_fwd_parse_pkt_format(data, len, true, &pinfo->outer))
+	if (mpiid_parse_pkt_format(data, len, true, &pinfo->outer))
 		return -1;
 
 	// これ以降の部分はパケットトレーシングには不要か
-	off = simple_fwd_parse_is_tun(pinfo);
+	off = mpiid_parse_is_tun(pinfo);
 	if (pinfo->tun_type == DOCA_FLOW_TUN_NONE || off < 0)
 		return 0;
 
@@ -217,19 +217,19 @@ int simple_fwd_parse_packet(uint8_t *data, int len,
 	{
 	case DOCA_FLOW_TUN_GRE:
 		inner_off = (pinfo->outer.l4 - data) + off;
-		if (simple_fwd_parse_pkt_format(data + inner_off,
+		if (mpiid_parse_pkt_format(data + inner_off,
 										len - inner_off, false, &pinfo->inner))
 			return -1;
 		break;
 	case DOCA_FLOW_TUN_VXLAN:
 		inner_off = (pinfo->outer.l4 - data) + off;
-		if (simple_fwd_parse_pkt_format(data + inner_off,
+		if (mpiid_parse_pkt_format(data + inner_off,
 										len - inner_off, pinfo->tun.l2, &pinfo->inner))
 			return -1;
 		break;
 	case DOCA_FLOW_TUN_GTPU:
 		inner_off = (pinfo->outer.l4 - data) + off;
-		if (simple_fwd_parse_pkt_format(data + inner_off,
+		if (mpiid_parse_pkt_format(data + inner_off,
 										len - inner_off, pinfo->tun.l2, &pinfo->inner))
 			return -1;
 		break;

@@ -11,12 +11,12 @@
  *
  */
 
-#ifndef _SIMPLE_FWD_PORT_H_
-#define _SIMPLE_FWD_PORT_H_
+#ifndef _mpiid_PORT_H_
+#define _mpiid_PORT_H_
 
 #define NUM_OF_PORTS (2)
 
-struct simple_fwd_port_cfg
+struct mpiid_port_cfg
 {
 	uint16_t nb_desc;
 	uint16_t port_id;
@@ -24,10 +24,10 @@ struct simple_fwd_port_cfg
 	uint16_t is_hairpin;
 };
 
-int simple_fwd_start_dpdk_port(struct simple_fwd_port_cfg *port);
+int mpiid_start_dpdk_port(struct mpiid_port_cfg *port);
 
-int simple_fwd_init_port(int port_id, int nr_queues);
+int mpiid_init_port(int port_id, int nr_queues);
 
-void simple_fwd_close_port(int port_id);
+void mpiid_close_port(int port_id);
 
 #endif

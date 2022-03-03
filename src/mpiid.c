@@ -117,7 +117,7 @@ char *get_mpifunc_string(int32_t tag)
 	return mpifunc_strings[3];
 }
 
-void analyze_packets(struct simple_fwd_pkt_info *pinfo)
+void analyze_packets(struct mpiid_pkt_info *pinfo)
 {
 	MPIDI_CH3_Pkt_t *pkt;
 	struct tcphdr *tcph = (struct tcphdr *)pinfo->outer.l4;
@@ -228,7 +228,7 @@ void analyze_packets(struct simple_fwd_pkt_info *pinfo)
 }
 
 /*this is very bad wasy to do it, need to set start time and use rte_*/
-static inline uint64_t simple_fwd_get_time_usec(void)
+static inline uint64_t mpiid_get_time_usec(void)
 {
 	struct timeval tv;
 
@@ -239,10 +239,10 @@ static inline uint64_t simple_fwd_get_time_usec(void)
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
 {
 	// 各レイヤのヘッダの位置などの情報
-	struct simple_fwd_pkt_info pinfo;
+	struct mpiid_pkt_info pinfo;
 
-	memset(&pinfo, 0, sizeof(struct simple_fwd_pkt_info));
-	if (simple_fwd_parse_packet(VNF_PKT_L2(mbuf), VNF_PKT_LEN(mbuf), &pinfo))
+	memset(&pinfo, 0, sizeof(struct mpiid_pkt_info));
+	if (mpiid_parse_packet(VNF_PKT_L2(mbuf), VNF_PKT_LEN(mbuf), &pinfo))
 	{
 		return;
 	}
@@ -327,7 +327,7 @@ static void signal_handler(int signum)
 	}
 }
 
-static void simple_fwd_info_usage(const char *prgname)
+static void mpiid_info_usage(const char *prgname)
 {
 	printf("%s [EAL options] --\n"
 		   "  --log_level: set log level\n"
@@ -335,7 +335,7 @@ static void simple_fwd_info_usage(const char *prgname)
 		   prgname);
 }
 
-static int simple_fwd_parse_uint32(const char *uint32_value)
+static int mpiid_parse_uint32(const char *uint32_value)
 {
 	char *end = NULL;
 	uint32_t value;
@@ -349,7 +349,7 @@ static int simple_fwd_parse_uint32(const char *uint32_value)
 }
 
 static int
-simple_fwd_info_parse_args(int argc, char **argv)
+mpiid_info_parse_args(int argc, char **argv)
 {
 	int opt;
 	int option_index;
@@ -363,7 +363,7 @@ simple_fwd_info_parse_args(int argc, char **argv)
 
 	if (argc == 1)
 	{
-		simple_fwd_info_usage(prgname);
+		mpiid_info_usage(prgname);
 		return 0;
 	}
 	while ((opt = getopt_long(argc, argv, "", long_option,
@@ -372,14 +372,14 @@ simple_fwd_info_parse_args(int argc, char **argv)
 		switch (opt)
 		{
 		case 0:
-			log_level = simple_fwd_parse_uint32(optarg);
+			log_level = mpiid_parse_uint32(optarg);
 			if (log_level > DOCA_LOG_LEVEL_DEBUG)
 				log_level = DOCA_LOG_LEVEL_DEBUG;
 			printf("set debug_level:%u\n", log_level);
 			doca_log_global_level_set(log_level);
 			break;
 		case 1:
-			nr_queues = simple_fwd_parse_uint32(optarg);
+			nr_queues = mpiid_parse_uint32(optarg);
 			if (nr_queues > 16)
 			{
 				printf("nr_queues should be 2 - 16\n");
@@ -388,7 +388,7 @@ simple_fwd_info_parse_args(int argc, char **argv)
 			printf("set nr_queues:%u.\n", nr_queues);
 			break;
 		default:
-			simple_fwd_info_usage(prgname);
+			mpiid_info_usage(prgname);
 			return -1;
 		}
 	}
@@ -467,7 +467,7 @@ int main(int argc, char **argv)
 	int ret, i = 0;
 	uint32_t nb_queues, nb_ports;
 	uint16_t port_id;
-	struct simple_fwd_port_cfg port_cfg = {0};
+	struct mpiid_port_cfg port_cfg = {0};
 	struct rte_ring *ring;
 
 	// Logger初期化
@@ -491,7 +491,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
 
-	ret = simple_fwd_info_parse_args(argc, argv);
+	ret = mpiid_info_parse_args(argc, argv);
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Invalid simple fwd arguments\n");
 
@@ -505,7 +505,7 @@ int main(int argc, char **argv)
 	RTE_ETH_FOREACH_DEV(port_id)
 	{
 		port_cfg.port_id = port_id;
-		simple_fwd_start_dpdk_port(&port_cfg);
+		mpiid_start_dpdk_port(&port_cfg);
 	}
 
 	// グローバル変数vnfの設定
@@ -530,6 +530,6 @@ int main(int argc, char **argv)
 	poll_packet_thread_fn(&core_params_arr[rte_lcore_id()]);
 
 	RTE_ETH_FOREACH_DEV(port_id)
-	simple_fwd_close_port(port_id);
+	mpiid_close_port(port_id);
 	return 0;
 }
