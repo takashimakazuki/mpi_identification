@@ -85,7 +85,7 @@ int mpiid_start_dpdk_port(struct mpiid_port_cfg *port_info)
 	if (mbuf_pool == NULL)
 	{
 		// NOTE: define mbuf size and allocate mbuf_pool
-		nb_mbufs = NUM_OF_PORTS * nr_queues * 512;
+		nb_mbufs = NUM_OF_PORTS * nr_queues * 2048;
 		mbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
 											nb_mbufs,
 											MEMPOOL_CACHE_SIZE,
