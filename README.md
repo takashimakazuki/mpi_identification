@@ -20,7 +20,7 @@ unsigned short mpich_port_end = 50100;
   - ARM用のバイナリにコンパイルする必要があるため，ビルド用のdockerコンテナが起動し，コンテナ内でビルドが実行される，ビルドが成功した場合，実行ファイルが`src/build`以下に出力される．
 
 - DOCAアプリケーション実行
-- [こちらのサンプルアプリ(simple-forward-vnf)](https://docs.nvidia.com/doca/sdk/simple-forward/index.html)を参考にしているため，実行方法もこちらに従う．
+- [こちらのサンプルアプリ(simple-forward-vnf)](https://docs.nvidia.com/doca/sdk/simple-forward-vnf/index.html)を参考にしているため，実行方法もこちらに従う．
 ```bash
 sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=2 --log_level=8 
 ```
