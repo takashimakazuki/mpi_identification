@@ -1,6 +1,7 @@
 # MPIログ収集モジュール
 
-- DPU上で実行することを想定
+- BlueField-2 DPU上で実行することを想定
+- MPICHの通信チャネルの設定は，`./configure --with-device=ch3:sock ...`対応
 - MPICH(mpirun)実行時に、環境変数`MPICH_PORT_RANGE`の設定が必要
 - TCP port番号の範囲はこちら (unisonflow-mpichを参考にした)
 ```c
