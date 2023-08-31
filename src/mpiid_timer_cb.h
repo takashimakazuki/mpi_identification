@@ -6,16 +6,32 @@
 #include <rte_timer.h>
 #include <rte_common.h>
 
-extern uint32_t processed_bytes, processed_pkts, tx_bytes, rx_bytes, enqueued_pkts, enqueued_bytes;
+#define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
+#define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
+#define VNF_RX_BURST_SIZE (64)
+#define RING_Q_COUNT (65536*16*16)
 
-static void timer_cb(__rte_unused struct rte_timer *tim, __rte_unused void *arg)
+#define MPI_PORT_RANGE_START 30000
+#define MPI_PORT_RANGE_END 80000
+
+extern __thread uint32_t processed_bytes;
+extern __thread uint32_t processed_pkts;
+extern __thread uint32_t tx_bytes;
+extern __thread uint32_t rx_bytes;
+extern __thread uint32_t enqueued_pkts;
+extern __thread uint32_t enqueued_bytes;
+
+void timer_cb(struct rte_timer *tim, struct rte_ring *ring)
 {
-	// static unsigned counter = 0;
 	unsigned lcore_id = rte_lcore_id();
+	unsigned int cnt = lcore_id == 0 ? 0 : rte_ring_count(ring);
 
-	printf("%s() on lcore %u, pkts(pps/Gbps）: %u/%.2lf, enq_pks(pps/Gbps): %u/%.2lf, rx/tx(Gbps): %.2lf/%.2lf\n", 
-	__func__, 
-	lcore_id, 
+	printf("[lcore %u] ring%u_cnt: %07d(%.1lf%%), ring%u_deq(pps/Gbps): %07u/%.2lf, ringX_enq(pps/Gbps): %07u/%.2lf, rx_deq/tx_enq(Gbps): %.2lf/%.2lf,\n",
+	lcore_id,
+	lcore_id,
+	cnt,
+	(double)cnt / RING_Q_COUNT * 100,
+	lcore_id,
 	processed_pkts,
 	(double)(processed_bytes)*8/1024/1024/1024,
 	enqueued_pkts,

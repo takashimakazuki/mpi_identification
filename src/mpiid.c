@@ -67,22 +67,16 @@
 DOCA_LOG_REGISTER(MPIID);
 
 // #define DEBUG
-#define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
-#define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
-#define VNF_RX_BURST_SIZE (64)
-
-#define MPI_PORT_RANGE_START 30000
-#define MPI_PORT_RANGE_END 80000
 
 // 計測用の変数
 static uint64_t timer_resolution_cycles;
-static struct rte_timer timer0;
-uint32_t processed_bytes = 0;
-uint32_t processed_pkts = 0;
-uint32_t enqueued_pkts = 0;
-uint32_t enqueued_bytes = 0;
-uint32_t rx_bytes = 0;
-uint32_t tx_bytes = 0;
+static struct rte_timer timers[RTE_MAX_LCORE];
+__thread uint32_t processed_bytes = 0;
+__thread uint32_t processed_pkts = 0;
+__thread uint32_t enqueued_pkts = 0;
+__thread uint32_t enqueued_bytes = 0;
+__thread uint32_t rx_bytes = 0;
+__thread uint32_t tx_bytes = 0;
 
 
 uint16_t nr_queues = 4;
@@ -172,13 +166,12 @@ static struct rte_hash_parameters ut_params = {
 	.socket_id = 0,
 };
 
-struct rte_hash *handle;
+__thread struct rte_hash *handle;
 
 int create_mpi_flow_hash()
 {
 	handle = rte_hash_create(&ut_params);
 	if (handle == NULL) {
-		printf("failed to create rte_hash\n");
 		DOCA_DLOG_ERR("failed to create rte_hash");
 		return -1;
 	}
@@ -240,10 +233,6 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 	struct rte_ipv4_hdr *iph = (struct rte_ipv4_hdr *)pinfo->fmt.l3;
 	// TCPペイロードの先頭ポインタ
 	uint8_t *tcp_payload = pinfo->fmt.l7;
-	int pkt_len;
-
-	// TCPペイロードのデータ長(bytes)
-	pkt_len = ntohs(iph->total_length) - iph->ihl * 4 - tcph->data_off * 4;
 
 	// MPICH kvm message
 	const char pattern[] = "kvs_([0-9]+)_([0-9]+)_([0-9]+)_([a-z]+)";
@@ -416,8 +405,11 @@ static int poll_packet_thread_fn(void *p)
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 	int cur_tsc;
 	int prev_tsc;
-
 	uint16_t nb_q;
+
+	// Flow watching initialization
+	create_mpi_flow_hash();
+
 
 	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
@@ -465,6 +457,8 @@ static int poll_packet_thread_fn(void *p)
 		}
 	}
 
+	// Flow watching deconstruction
+	rte_hash_free(handle);
 	return 0;
 }
 
@@ -480,10 +474,7 @@ static int worker_thread_fn(void *p)
 
 	// MPIログ出力初期化処理
 	init_mpilog_buf();
-
-	// Flow watching initialization
-	create_mpi_flow_hash();
-
+	
 	while (!force_quit)
 	{
 		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE, NULL);
@@ -503,9 +494,6 @@ static int worker_thread_fn(void *p)
 		}
 		// [end] rte timer manager
 	}
-
-	// Flow watching deconstruction
-	rte_hash_free(handle);
 
 	// 終了処理
 	flush_mpilog_buf(core_id);
@@ -647,7 +635,7 @@ void printPacketTypeEnum()
 struct rte_ring *create_ring()
 {
 	struct rte_ring *ring;
-	ring = rte_ring_create("wk_ring0", 65536*16*4, rte_socket_id(), RING_F_SP_ENQ);
+	ring = rte_ring_create("wk_ring0", RING_Q_COUNT, rte_socket_id(), RING_F_SP_ENQ);
 	if (ring == NULL)
 	{
 		rte_exit(EXIT_FAILURE, "Cannot create rx/tx ring\n");
@@ -692,15 +680,6 @@ int main(int argc, char **argv)
 	if (nb_queues > nr_queues)
 		nb_queues = nr_queues;
 
-	/* [measurement] init RTE timer library */
-	uint64_t hz;
-	rte_timer_subsystem_init();
-	rte_timer_init(&timer0);
-	hz = rte_get_timer_hz();
-	timer_resolution_cycles = hz * 1; /* around 1s */
-	rte_timer_reset(&timer0, hz, PERIODICAL, 1, timer_cb, NULL);
-
-
 	// スレッド間でのパケット受け渡し用のRing作成
 	ring = create_ring();
 	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues, ring);
@@ -710,6 +689,18 @@ int main(int argc, char **argv)
 		port_cfg.port_id = port_id;
 		mpiid_start_dpdk_port(&port_cfg);
 	}
+
+	/* [measurement] init RTE timer library */
+	uint64_t hz;
+	rte_timer_subsystem_init();
+	hz = rte_get_timer_hz();
+	timer_resolution_cycles = hz * 1; /* around 1s */
+    for (int i = 0; i < nb_queues; i++)
+	{
+		rte_timer_init(&timers[i]);
+		rte_timer_reset(&timers[i], hz, PERIODICAL, i, (rte_timer_cb_t)timer_cb, ring);
+	}
+	printf("sssssssssssssss");
 
 	// グローバル変数vnfの設定
 	for (i = 0; i < RTE_MAX_LCORE; i++)

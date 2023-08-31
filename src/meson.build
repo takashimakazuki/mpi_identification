@@ -70,3 +70,14 @@ inc_dir = include_directories(
 
 executable('mpiid', sources, dependencies : app_dependencies, include_directories : inc_dir, install: false)
 
+
+multiq_sources = [
+	'mpiid_multiq.c',
+	'mpiid_pkt.c',
+	'mpiid_port.c',
+	'logger.c',
+	'./../common/src/flow_offload.c',
+	'./../common/src/utils.c',
+]
+executable('mpiid_multiq', multiq_sources, dependencies : app_dependencies, include_directories : inc_dir, install: false)
+
