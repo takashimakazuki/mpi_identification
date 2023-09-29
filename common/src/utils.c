@@ -43,7 +43,7 @@ print_l2_header(const struct rte_mbuf *packet)
 {
 	struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(packet, struct rte_ether_hdr *);
 
-	print_ether_addr(&eth_hdr->d_addr, &eth_hdr->s_addr, htonl(eth_hdr->ether_type) >> 16);
+	print_ether_addr(&eth_hdr->dst_addr, &eth_hdr->src_addr, htonl(eth_hdr->ether_type) >> 16);
 }
 
 void

@@ -10,7 +10,7 @@
 # provided with the software product.
 #
 
-project('DOCA-SIMPLE-FWD', 'C', 'CPP',
+project('DOCA-MPIID', 'C', 'CPP',
 	# Get version number from file.
 	# Fallback to "more" for Windows compatibility.
 	version: run_command(find_program('cat', 'more'),
@@ -41,14 +41,15 @@ endif
 # Uncomment this line to remove warnings of experimental compile
 add_project_arguments('-D DOCA_ALLOW_EXPERIMENTAL_API', language: 'c')
 
-libdpdk_dep = dependency('libdpdk', required : false)
+
+app_dependencies = []
+libdpdk_dep = dependency('libdpdk', required : true)
 if not libdpdk_dep.found()
 	error('please set PKG_CONFIG_PATH to dpdk packages path, for further instructions check DOCA manuals')
 endif
-thread_dep = dependency('threads', required : true)
-libflow_utils_dep = dependency('doca-utils', required : true)
-libflow_dep = dependency('doca-flow', required : true)
-libcommon_dep = dependency('doca-common', required : true)
+app_dependencies += libdpdk_dep
+app_dependencies += dependency('threads', required : true)
+app_dependencies += dependency('doca', required : true)
 
 sources = [
 	'mpiid_pkt.c',
@@ -59,7 +60,13 @@ sources = [
 	'./../common/src/utils.c',
 ]
 
-common_dir = include_directories('./../common/src', './../mpich/include')
+inc_dir = include_directories(
+	'./../common/src', 
+	'./../mpich/include', 
+	'/opt/mellanox/doca/include', 
+	'/usr/include',
+	'/opt/mellanox/doca/applications/common/src/'
+)
 
-executable('log_mpi', sources, dependencies : [libcommon_dep, libflow_dep, libflow_utils_dep, libdpdk_dep, thread_dep], include_directories : common_dir, install: false)
+executable('mpiid', sources, dependencies : app_dependencies, include_directories : inc_dir, install: false)
 

@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <rte_common.h>
 #include <rte_lcore.h>
@@ -24,7 +25,7 @@ DOCA_LOG_REGISTER(MPI_LOGGER);
 // バッファするログの数
 #define LOG_BUF_LINE_MAX 1000
 // ログ一行のサイズ上限 (EAGER_SENDのログが128byteだったため，余裕を持たせて150byteとした)
-#define LOG_BUF_LINE_SIZE 150
+#define LOG_BUF_LINE_SIZE 1024
 
 // グローバル変数
 // ログファイルNo 0:ファイル未確定 1以上:ファイル名確定中

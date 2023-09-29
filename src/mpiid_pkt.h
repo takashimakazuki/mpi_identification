@@ -32,25 +32,9 @@ struct mpiid_pkt_format
 	uint8_t l3_type;
 	uint8_t l4_type;
 
-	/* if tunnel it is the internal, if no tunnel then outer*/
 	uint8_t *l7;
 };
 
-struct mpiid_pkt_tun_format
-{
-	doca_be32_t vni;
-	bool l2;
-	doca_be16_t proto;
-
-	union
-	{
-		struct
-		{
-			uint8_t gtp_msg_type;
-			uint8_t gtp_flags;
-		};
-	};
-};
 
 /**
  * @brief - packet parsing result.
@@ -63,30 +47,13 @@ struct mpiid_pkt_info
 	uint16_t orig_port_id;
 	uint32_t rss_hash;
 
-	struct mpiid_pkt_format outer; // VXLANの外側のパケット
-	enum doca_flow_tun_type tun_type;
-	struct mpiid_pkt_tun_format tun;
-	struct mpiid_pkt_format inner; // VXLANの内部パケット
+	struct mpiid_pkt_format fmt;
 	int len;
 };
 
-struct mpiid_ft_key
-{
-	doca_be32_t ipv4_1;
-	doca_be32_t ipv4_2;
-	doca_be16_t port_1;
-	doca_be16_t port_2;
-	doca_be32_t vni;
-	uint8_t protocol;
-	uint8_t tun_type;
-	uint8_t pad[6];
-	uint32_t rss_hash;
-};
 
 int mpiid_parse_packet(uint8_t *data,
 							int len,
 							struct mpiid_pkt_info *pinfo);
-
-void mpiid_pinfo_decap(struct mpiid_pkt_info *pinfo);
 
 #endif

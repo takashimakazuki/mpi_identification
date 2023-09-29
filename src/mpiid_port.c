@@ -11,6 +11,8 @@
  *
  */
 
+#include <stdlib.h>
+
 #include <rte_eal.h>
 #include <rte_common.h>
 #include <rte_malloc.h>
@@ -48,7 +50,7 @@ mpiid_assert_link_status(int port_id)
 	do
 	{
 		link_get_err = rte_eth_link_get(port_id, &link);
-		if (link_get_err == 0 && link.link_status == ETH_LINK_UP)
+		if (link_get_err == 0 && link.link_status == RTE_ETH_LINK_UP)
 			break;
 		rte_delay_ms(CHECK_INTERVAL);
 	} while (--rep_cnt);
@@ -56,7 +58,7 @@ mpiid_assert_link_status(int port_id)
 	if (link_get_err < 0)
 		rte_exit(EXIT_FAILURE, ":: error: link get is failing: %s\n",
 				 rte_strerror(-link_get_err));
-	if (link.link_status == ETH_LINK_DOWN)
+	if (link.link_status == RTE_ETH_LINK_DOWN)
 		rte_exit(EXIT_FAILURE, ":: error: link is still down\n");
 }
 
@@ -71,12 +73,7 @@ int mpiid_start_dpdk_port(struct mpiid_port_cfg *port_info)
 		.peer_count = 1,
 	};
 	struct rte_eth_conf port_conf = {
-		.rxmode = {
-			.split_hdr_size = 0,
-		},
-		.txmode = {
-			.offloads = DEV_TX_OFFLOAD_VLAN_INSERT | DEV_TX_OFFLOAD_IPV4_CKSUM | DEV_TX_OFFLOAD_UDP_CKSUM | DEV_TX_OFFLOAD_TCP_CKSUM | DEV_TX_OFFLOAD_SCTP_CKSUM | DEV_TX_OFFLOAD_TCP_TSO,
-		},
+		0
 	};
 	struct rte_eth_txconf tx_queue_conf;
 	struct rte_eth_rxconf rx_queue_conf;
@@ -207,7 +204,7 @@ void mpiid_close_port(int port_id)
 {
 	struct rte_flow_error error;
 
-	doca_flow_destroy_port(port_id);
+	doca_flow_destroy();
 	rte_flow_flush(port_id, &error);
 	rte_eth_dev_stop(port_id);
 	rte_eth_dev_close(port_id);

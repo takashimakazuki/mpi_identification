@@ -373,12 +373,12 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool, const uint8_t queues, boo
 		0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A,
 		0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, 0x6D, 0x5A, };
 	const struct rte_eth_conf port_conf_default = {
-		.rxmode = { .max_rx_pkt_len = RTE_ETHER_MAX_LEN },
+		.rxmode = { .max_lro_pkt_size = RTE_ETHER_MAX_LEN },
 		.rx_adv_conf = {
 			.rss_conf = {
 			.rss_key_len = symmetric_hash_key_length,
 			.rss_key = symmetric_hash_key,
-			.rss_hf = ETH_RSS_PROTO_MASK,
+			.rss_hf = RTE_ETH_RSS_PROTO_MASK,
 			},
 		},
 	};

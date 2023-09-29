@@ -22,7 +22,10 @@ unsigned short mpich_port_end = 50100;
 - DOCAアプリケーション実行
 - [こちらのサンプルアプリ(simple-forward-vnf)](https://docs.nvidia.com/doca/sdk/simple-forward-vnf/index.html)を参考にしているため，実行方法もこちらに従う．
 ```bash
-sudo ./log_mpi -a auxiliary:mlx5_core.sf.4 -a auxiliary:mlx5_core.sf.5 -- --nr_queues=2 --log_level=8 
+# Build DPU application without containers
+DPU$ ./src/build_app.sh
+# Run the application
+DPU$ sudo ./bin/run_mpiid.sh
 ```
 
 

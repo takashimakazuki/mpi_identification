@@ -30,9 +30,8 @@
 #include <getopt.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <netinet/tcp.h>
-#include <netinet/ip.h>
 #include <arpa/inet.h>
+#include <regex.h>
 
 #include <rte_eal.h>
 #include <rte_common.h>
@@ -44,6 +43,12 @@
 #include <rte_net.h>
 #include <rte_flow.h>
 #include <rte_cycles.h>
+#include <rte_timer.h>
+#include <rte_hash.h>
+#include <rte_jhash.h>
+#include <rte_ip.h>
+#include <rte_tcp.h>
+
 #include <doca_flow.h>
 #include <doca_log.h>
 #include "flow_offload.h"
@@ -51,6 +56,7 @@
 #include "app_vnf.h"
 #include "mpiid_port.h"
 #include "mpiid_pkt.h"
+#include "mpiid_timer_cb.h"
 
 #include "mpi.h"
 #include "mpidpre.h"
@@ -58,12 +64,26 @@
 #include "mpir_tags.h"
 #include "logger.h"
 
-DOCA_LOG_REGISTER(SIMPLE_FWD);
+DOCA_LOG_REGISTER(MPIID);
 
 // #define DEBUG
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
 #define VNF_RX_BURST_SIZE (64)
+
+#define MPI_PORT_RANGE_START 30000
+#define MPI_PORT_RANGE_END 80000
+
+// 計測用の変数
+static uint64_t timer_resolution_cycles;
+static struct rte_timer timer0;
+uint32_t processed_bytes = 0;
+uint32_t processed_pkts = 0;
+uint32_t enqueued_pkts = 0;
+uint32_t enqueued_bytes = 0;
+uint32_t rx_bytes = 0;
+uint32_t tx_bytes = 0;
+
 
 uint16_t nr_queues = 4;
 uint16_t nr_desc = 512;
@@ -80,6 +100,10 @@ struct vnf_per_core_params
 };
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
+struct rte_hash *hash;
+struct rte_hash_parameters params;
+
+
 void get_ipv4_addr(const rte_be32_t dip, const rte_be32_t sip, char *buf)
 {
 	sprintf(buf, "DIP=%d.%d.%d.%d, SIP=%d.%d.%d.%d",
@@ -93,61 +117,188 @@ void get_ipv4_addr(const rte_be32_t dip, const rte_be32_t sip, char *buf)
 			(sip & 0x000000ff));
 }
 
-char *mpifunc_strings[4] = {
-	"BCAST",
-	"ALLGATHER",
-	"ALLTOALL",
-	"SEND",
+char* parse_ip_packet(struct rte_ipv4_hdr *iph)
+{
+	char* log_buf = (char *) rte_malloc(NULL, 1024 * sizeof(char), 0);
+	sprintf(log_buf + strlen(log_buf), "IP Version: %d\n", (unsigned int)iph->version);
+    sprintf(log_buf + strlen(log_buf), "IP Header Length: %d Bytes\n", ((unsigned int)(iph->ihl)) * 4);
+    sprintf(log_buf + strlen(log_buf), "IP Total Length: %d  Bytes(Size of Packet)\n",ntohs(iph->total_length));
+    sprintf(log_buf + strlen(log_buf), "Identification: %d\n", ntohs(iph->packet_id));
+    sprintf(log_buf + strlen(log_buf), "Protocol: %d\n", (unsigned int)iph->next_proto_id);
+    sprintf(log_buf + strlen(log_buf), "Checksum: %d\n", ntohs(iph->hdr_checksum));
+    sprintf(log_buf + strlen(log_buf), "Source Adddress: %.4x\n", iph->src_addr);
+    sprintf(log_buf + strlen(log_buf), "Destination Adddress: %.4x\n", iph->dst_addr);
+    sprintf(log_buf + strlen(log_buf), "Fragment Offset:  %d\n", iph->fragment_offset);
+	
+	sprintf(log_buf + strlen(log_buf), "=================================\n");
+	return log_buf;
+}
+
+char *mpifunc_strings[11] = {
+	"",
+	"MPI_SEND",
+	"MPIR_BCAST_TAG",
+	"MPIR_GATHER_TAG",
+	"MPIR_GATHERV_TAG",
+ 	"MPIR_SCATTER_TAG",
+	"MPIR_SCATTERV_TAG",
+	"MPIR_ALLGATHER_TAG", 
+	"MPIR_ALLGATHERV_TAG",
+	"MPIR_ALLTOALL_TAG",
+	"MPIR_ALLTOALLV_TAG",
 };
 
 char *get_mpifunc_string(int32_t tag)
 {
-	if (tag == MPIR_BCAST_TAG)
-	{
-		return mpifunc_strings[0];
-	}
-	else if (tag == MPIR_ALLGATHER_TAG)
-	{
+	if (tag < 2 || tag > 11) {
 		return mpifunc_strings[1];
 	}
-	else if (tag == MPIR_ALLTOALL_TAG)
-	{
-		return mpifunc_strings[2];
+	return mpifunc_strings[(int)tag];
+}
+
+struct tcp_flow_tuple4 {
+	uint32_t ip_src;
+	uint32_t ip_dst;
+	uint16_t port_src;
+	uint16_t port_dst;
+};
+
+static struct rte_hash_parameters ut_params = {
+	.name = "mpiflowhash",
+	.entries = 16,
+	.key_len = sizeof(struct tcp_flow_tuple4),
+	.hash_func = NULL,
+	.hash_func_init_val = 0,
+	.socket_id = 0,
+};
+
+struct rte_hash *handle;
+
+int create_mpi_flow_hash()
+{
+	handle = rte_hash_create(&ut_params);
+	if (handle == NULL) {
+		printf("failed to create rte_hash\n");
+		DOCA_DLOG_ERR("failed to create rte_hash");
+		return -1;
 	}
-	return mpifunc_strings[3];
+
+	return 0;
+}
+
+int32_t add_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
+{
+	if (handle == NULL) {
+		DOCA_DLOG_ERR("rte_hash is not created");
+		return -1;
+	}
+
+	struct tcp_flow_tuple4 tuple = {
+		.ip_src = saddr,
+		.ip_dst = daddr,
+		.port_src = src_port,
+		.port_dst = dst_port,
+	};
+	return rte_hash_add_key(handle, &tuple);
+}
+
+int32_t lookup_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
+{
+	if (handle == NULL) {
+		DOCA_DLOG_ERR("rte_hash is not created");
+		return -1;
+	}
+
+	struct tcp_flow_tuple4 tuple = {
+		.ip_src = saddr,
+		.ip_dst = daddr,
+		.port_src = src_port,
+		.port_dst = dst_port,
+	};
+	return rte_hash_lookup(handle, &tuple);
+}
+
+int32_t delete_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
+{
+	if (handle == NULL) {
+		DOCA_DLOG_ERR("rte_hash is not created");
+		return -1;
+	}
+	struct tcp_flow_tuple4 tuple = {
+		.ip_src = saddr,
+		.ip_dst = daddr,
+		.port_src = src_port,
+		.port_dst = dst_port,
+	};
+	return rte_hash_del_key(handle, &tuple);
 }
 
 void analyze_packets(struct mpiid_pkt_info *pinfo)
 {
 	MPIDI_CH3_Pkt_t *pkt;
-	struct tcphdr *tcph = (struct tcphdr *)pinfo->outer.l4;
-	struct iphdr *iph = (struct iphdr *)pinfo->outer.l3;
+	struct rte_tcp_hdr *tcph = (struct rte_tcp_hdr *)pinfo->fmt.l4;
+	struct rte_ipv4_hdr *iph = (struct rte_ipv4_hdr *)pinfo->fmt.l3;
 	// TCPペイロードの先頭ポインタ
-	uint8_t *l4_payload = pinfo->outer.l4 + tcph->doff * 4;
+	uint8_t *tcp_payload = pinfo->fmt.l7;
 	int pkt_len;
 
 	// TCPペイロードのデータ長(bytes)
-	pkt_len = ntohs(iph->tot_len) - iph->ihl * 4 - tcph->doff * 4;
+	pkt_len = ntohs(iph->total_length) - iph->ihl * 4 - tcph->data_off * 4;
 
-	// TCPパケットペイロードがない場合
-	if (pkt_len <= 0)
+	// MPICH kvm message
+	const char pattern[] = "kvs_([0-9]+)_([0-9]+)_([0-9]+)_([a-z]+)";
+	regex_t regexBuffer;
+	if (regcomp(&regexBuffer, pattern, REG_EXTENDED) != 0) {
+		DOCA_LOG_ERR("regex compile failed");
+	}
+
+	int kvs_str_offset = 80;
+	regmatch_t patternMatch[4];
+	int size = sizeof( patternMatch ) / sizeof( regmatch_t );
+	if( regexec(&regexBuffer, (char *)&tcp_payload[kvs_str_offset], size, patternMatch, 0) == 0 )
 	{
+		add_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
+		add_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
+
+	}
+	regfree( &regexBuffer );
+
+	// check if this packet is mpi flow. if the packet is not MPI, finish this function.
+	if (!(lookup_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port) > 0 || 
+		lookup_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port) > 0)) {
 		return;
 	}
 
-	// MPIヘッダ長の長さに足りないためMPI送信パケットではない
-	if (pkt_len < sizeof(MPIDI_CH3_Pkt_t))
-	{
-		return;
-	}
+	// Following script is for MPI packet
 
-	if (ntohs(tcph->dest) >= 50000 && ntohs(tcph->dest) <= 50100)
+	// Add a log message
+	char ip_src[INET_ADDRSTRLEN];
+	char ip_dst[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &(iph->src_addr), ip_src, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, &(iph->dst_addr), ip_dst, INET_ADDRSTRLEN);
+
+	// MPI FIN packet?
+	if (tcph->fin == 1) {
+		delete_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
+		delete_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
+#ifdef DEBUG
+		printf("[mpi flow finish packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [len=%d] [flows=%d]\n", 
+		ip_src, tcph->th_sport, ip_dst, tcph->th_dport, pkt_len, rte_hash_count(handle));
+#endif
+	} else {
+#ifdef DEBUG
+		printf("[mpi flow packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [len=%d] [flows=%d]\n", 
+		ip_src, tcph->th_sport, ip_dst, tcph->th_dport, pkt_len, rte_hash_count(handle));
+#endif
+	}
+	
+	if (ntohs(tcph->dst_port) >= MPI_PORT_RANGE_START && ntohs(tcph->dst_port) <= MPI_PORT_RANGE_END)
 	{
 		// 型キャスト
-		pkt = (MPIDI_CH3_Pkt_t *)l4_payload;
+		pkt = (MPIDI_CH3_Pkt_t *)tcp_payload;
 
 		char ip_str_buf[50];
-		get_ipv4_addr(htonl(iph->daddr), htonl(iph->saddr), ip_str_buf);
+		get_ipv4_addr(htonl(iph->dst_addr), htonl(iph->src_addr), ip_str_buf);
 
 		switch (pkt->type)
 		{
@@ -159,10 +310,11 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 			gettimeofday(&start, NULL);
 #endif
 			MPIDI_CH3_Pkt_eagershort_send_t *eagershort_pkt = &pkt->eagershort_send;
-			putLog("EAGERSHORT\t %s rank=%d size=%d func=%s",
+			putLog("EAGERSHORT\t %s rank=%d size=%ld tag=0x%x func=%s",
 				   ip_str_buf,
 				   eagershort_pkt->match.parts.rank,
 				   eagershort_pkt->data_sz,
+				   (int)eagershort_pkt->match.parts.tag,
 				   get_mpifunc_string(eagershort_pkt->match.parts.tag));
 
 #ifdef DEBUG
@@ -188,10 +340,11 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 			gettimeofday(&start, NULL);
 #endif
 			MPIDI_CH3_Pkt_eager_send_t *eager_send = &pkt->eager_send;
-			putLog("EAGER_SEND\t %s rank=%d size=%d func=%s",
+			putLog("EAGER_SEND\t %s rank=%d size=%ld tag=0x%x func=%s",
 				   ip_str_buf,
 				   eager_send->match.parts.rank,
 				   eager_send->data_sz,
+				   (int)eager_send->match.parts.tag,
 				   get_mpifunc_string(eager_send->match.parts.tag));
 #ifdef DEBUG
 			gettimeofday(&end, NULL);
@@ -250,7 +403,7 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 	pinfo.orig_data = mbuf;
 	pinfo.orig_port_id = mbuf->port;
 	pinfo.rss_hash = mbuf->hash.rss;
-	if (pinfo.outer.l3_type != IPV4)
+	if (pinfo.fmt.l3_type != IPV4)
 		return;
 	analyze_packets(&pinfo);
 }
@@ -261,6 +414,10 @@ static int poll_packet_thread_fn(void *p)
 	uint16_t nb_rx, nb_tx, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
+	int cur_tsc;
+	int prev_tsc;
+
+	uint16_t nb_q;
 
 	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
@@ -270,14 +427,28 @@ static int poll_packet_thread_fn(void *p)
 		{
 			queue_id = params->queues[port_id];
 			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, VNF_RX_BURST_SIZE);
-
+			for (int i=0; i<nb_rx; i++)
+			{
+				rx_bytes += mbufs[i]->pkt_len;
+			}
+			
 			if (likely(nb_rx > 0))
 			{
-				rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+				nb_q = rte_ring_enqueue_burst(params->ring, (void **)mbufs, nb_rx, NULL);
+				enqueued_pkts += nb_q;
+				for (int i=0; i<nb_q; i++)
+				{
+					enqueued_bytes += mbufs[i]->pkt_len;
+				}
 			}
 
 			// パケット送信，mbufの解放
 			nb_tx = rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
+			for (int i=0; i<nb_tx; i++)
+			{
+				tx_bytes += mbufs[i]->pkt_len;
+			}
+
 			if (nb_tx < nb_rx)
 			{
 				for (int i = nb_tx; i < nb_rx; i++)
@@ -285,6 +456,12 @@ static int poll_packet_thread_fn(void *p)
 					rte_pktmbuf_free(mbufs[i]);
 				}
 			}
+		}
+		// 1sごとに出力
+		cur_tsc = rte_get_timer_cycles();
+		if ((cur_tsc - prev_tsc) > timer_resolution_cycles) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
 		}
 	}
 
@@ -298,19 +475,37 @@ static int worker_thread_fn(void *p)
 	uint32_t core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 	DOCA_LOG_INFO("core %u process start (worker_thread_fn)", core_id);
+	int cur_tsc;
+	int prev_tsc;
 
 	// MPIログ出力初期化処理
 	init_mpilog_buf();
+
+	// Flow watching initialization
+	create_mpi_flow_hash();
 
 	while (!force_quit)
 	{
 		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE, NULL);
 
+		processed_pkts += nb_rx;
 		for (j = 0; j < nb_rx; j++)
 		{
+			processed_bytes += mbufs[j]->pkt_len;
 			mpiid_process_offload(mbufs[j]);
 		}
+
+		// [start] rte timer manager
+		cur_tsc = rte_get_timer_cycles();
+		if ((cur_tsc - prev_tsc) > timer_resolution_cycles) {
+			rte_timer_manage();
+			prev_tsc = cur_tsc;
+		}
+		// [end] rte timer manager
 	}
+
+	// Flow watching deconstruction
+	rte_hash_free(handle);
 
 	// 終了処理
 	flush_mpilog_buf(core_id);
@@ -431,18 +626,18 @@ void printPacketTypeEnum()
 	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_CLR_TO_SEND: %d", MPIDI_CH3_PKT_RNDV_CLR_TO_SEND);
 	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_SEND: %d", MPIDI_CH3_PKT_RNDV_SEND);
 
-	DOCA_LOG_DBG("sizeof enum MPIDI_CH3_Pkt_t: %d bytes", sizeof(MPIDI_CH3_Pkt_t));
-	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_send_t: %d bytes", sizeof(MPIDI_CH3_Pkt_send_t));
-	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_eagershort_send_t: %d bytes", sizeof(MPIDI_CH3_Pkt_eagershort_send_t));
-	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_type_t: %d bytes", sizeof(MPIDI_CH3_Pkt_type_t));
-	DOCA_LOG_DBG("sizeof MPIDI_Message_match: %d bytes", sizeof(MPIDI_Message_match));
-	DOCA_LOG_DBG("sizeof   - MPIDI_Message_match_parts_t: %d bytes", sizeof(MPIDI_Message_match_parts_t));
-	DOCA_LOG_DBG("sizeof     - int32_t tag: %d bytes", sizeof(int32_t));
-	DOCA_LOG_DBG("sizeof     - MPIDI_Rank_t rank: %d bytes", sizeof(MPIDI_Rank_t));
-	DOCA_LOG_DBG("sizeof     - MPIR_Context_id_t context_id: %d bytes", sizeof(MPIR_Context_id_t));
-	DOCA_LOG_DBG("sizeof   - uintptr_t: %d bytes", sizeof(uintptr_t));
-	DOCA_LOG_DBG("sizeof MPI_Request: %d bytes", sizeof(MPI_Request));
-	DOCA_LOG_DBG("sizeof intptr_t: %d bytes", sizeof(intptr_t));
+	DOCA_LOG_DBG("sizeof enum MPIDI_CH3_Pkt_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_send_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_eagershort_send_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_eagershort_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_type_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_type_t));
+	DOCA_LOG_DBG("sizeof MPIDI_Message_match: %ld bytes", sizeof(MPIDI_Message_match));
+	DOCA_LOG_DBG("sizeof   - MPIDI_Message_match_parts_t: %ld bytes", sizeof(MPIDI_Message_match_parts_t));
+	DOCA_LOG_DBG("sizeof     - int32_t tag: %ld bytes", sizeof(int32_t));
+	DOCA_LOG_DBG("sizeof     - MPIDI_Rank_t rank: %ld bytes", sizeof(MPIDI_Rank_t));
+	DOCA_LOG_DBG("sizeof     - MPIR_Context_id_t context_id: %ld bytes", sizeof(MPIR_Context_id_t));
+	DOCA_LOG_DBG("sizeof   - uintptr_t: %ld bytes", sizeof(uintptr_t));
+	DOCA_LOG_DBG("sizeof MPI_Request: %ld bytes", sizeof(MPI_Request));
+	DOCA_LOG_DBG("sizeof intptr_t: %ld bytes", sizeof(intptr_t));
 	DOCA_LOG_DBG("+=====================================+");
 }
 
@@ -452,7 +647,7 @@ void printPacketTypeEnum()
 struct rte_ring *create_ring()
 {
 	struct rte_ring *ring;
-	ring = rte_ring_create("wk_ring0", 4096, rte_socket_id(), RING_F_SP_ENQ);
+	ring = rte_ring_create("wk_ring0", 65536*16*4, rte_socket_id(), RING_F_SP_ENQ);
 	if (ring == NULL)
 	{
 		rte_exit(EXIT_FAILURE, "Cannot create rx/tx ring\n");
@@ -460,7 +655,6 @@ struct rte_ring *create_ring()
 	return ring;
 }
 
-int gLogCurNo;
 
 int main(int argc, char **argv)
 {
@@ -497,6 +691,15 @@ int main(int argc, char **argv)
 
 	if (nb_queues > nr_queues)
 		nb_queues = nr_queues;
+
+	/* [measurement] init RTE timer library */
+	uint64_t hz;
+	rte_timer_subsystem_init();
+	rte_timer_init(&timer0);
+	hz = rte_get_timer_hz();
+	timer_resolution_cycles = hz * 1; /* around 1s */
+	rte_timer_reset(&timer0, hz, PERIODICAL, 1, timer_cb, NULL);
+
 
 	// スレッド間でのパケット受け渡し用のRing作成
 	ring = create_ring();
