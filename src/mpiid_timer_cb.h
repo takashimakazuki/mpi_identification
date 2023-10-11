@@ -9,7 +9,8 @@
 #define VNF_PKT_L2(M) rte_pktmbuf_mtod(M, uint8_t *)
 #define VNF_PKT_LEN(M) rte_pktmbuf_pkt_len(M)
 #define VNF_RX_BURST_SIZE (64)
-#define RING_Q_COUNT (65536*16*16)
+#define RING_Q_COUNT (65536*16)
+#define MPI_PKT_KVS_STR_OFFSET (80)
 
 #define MPI_PORT_RANGE_START 30000
 #define MPI_PORT_RANGE_END 80000

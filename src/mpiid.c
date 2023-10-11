@@ -31,7 +31,6 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <arpa/inet.h>
-#include <regex.h>
 
 #include <rte_eal.h>
 #include <rte_common.h>
@@ -226,6 +225,8 @@ int32_t delete_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint1
 	return rte_hash_del_key(handle, &tuple);
 }
 
+const char pattern[5] = "kvs_";
+
 void analyze_packets(struct mpiid_pkt_info *pinfo)
 {
 	MPIDI_CH3_Pkt_t *pkt;
@@ -234,25 +235,21 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 	// TCPペイロードの先頭ポインタ
 	uint8_t *tcp_payload = pinfo->fmt.l7;
 
-	// MPICH kvm message
-	const char pattern[] = "kvs_([0-9]+)_([0-9]+)_([0-9]+)_([a-z]+)";
-	regex_t regexBuffer;
-	if (regcomp(&regexBuffer, pattern, REG_EXTENDED) != 0) {
-		DOCA_LOG_ERR("regex compile failed");
+	if (iph->next_proto_id != IPPROTO_TCP) 
+	{
+		return;
 	}
 
-	int kvs_str_offset = 80;
-	regmatch_t patternMatch[4];
-	int size = sizeof( patternMatch ) / sizeof( regmatch_t );
-	if( regexec(&regexBuffer, (char *)&tcp_payload[kvs_str_offset], size, patternMatch, 0) == 0 )
+	// MPICH kvm message
+	if (strncmp((char *)&(tcp_payload[MPI_PKT_KVS_STR_OFFSET]), pattern, 4))
 	{
 		add_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
 		add_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
-
+	} else {
+		return;
 	}
-	regfree( &regexBuffer );
 
-	// check if this packet is mpi flow. if the packet is not MPI, finish this function.
+	// Check if this packet is mpi flow. if the packet is not MPI, finish this function.
 	if (!(lookup_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port) > 0 || 
 		lookup_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port) > 0)) {
 		return;
@@ -261,26 +258,21 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 	// Following script is for MPI packet
 
 	// Add a log message
-	char ip_src[INET_ADDRSTRLEN];
-	char ip_dst[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &(iph->src_addr), ip_src, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, &(iph->dst_addr), ip_dst, INET_ADDRSTRLEN);
-
+	
 	// MPI FIN packet?
 	if (tcph->fin == 1) {
 		delete_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
 		delete_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
 #ifdef DEBUG
+		char ip_src[INET_ADDRSTRLEN];
+		char ip_dst[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &(iph->src_addr), ip_src, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, &(iph->dst_addr), ip_dst, INET_ADDRSTRLEN);
 		printf("[mpi flow finish packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [len=%d] [flows=%d]\n", 
 		ip_src, tcph->th_sport, ip_dst, tcph->th_dport, pkt_len, rte_hash_count(handle));
 #endif
-	} else {
-#ifdef DEBUG
-		printf("[mpi flow packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [len=%d] [flows=%d]\n", 
-		ip_src, tcph->th_sport, ip_dst, tcph->th_dport, pkt_len, rte_hash_count(handle));
-#endif
 	}
-	
+
 	if (ntohs(tcph->dst_port) >= MPI_PORT_RANGE_START && ntohs(tcph->dst_port) <= MPI_PORT_RANGE_END)
 	{
 		// 型キャスト
@@ -647,10 +639,15 @@ struct rte_ring *create_ring()
 int main(int argc, char **argv)
 {
 	int ret, i = 0;
+	struct doca_logger_backend *stdout_logger = NULL;
 	uint32_t nb_queues, nb_ports;
 	uint16_t port_id;
 	struct mpiid_port_cfg port_cfg = {0};
 	struct rte_ring *ring;
+
+	ret = doca_log_create_file_backend(stdout, &stdout_logger);
+	if (ret != DOCA_SUCCESS)
+		return EXIT_FAILURE;
 
 	// Logger初期化
 	gLogCurNo = 0;
@@ -700,7 +697,6 @@ int main(int argc, char **argv)
 		rte_timer_init(&timers[i]);
 		rte_timer_reset(&timers[i], hz, PERIODICAL, i, (rte_timer_cb_t)timer_cb, ring);
 	}
-	printf("sssssssssssssss");
 
 	// グローバル変数vnfの設定
 	for (i = 0; i < RTE_MAX_LCORE; i++)
@@ -723,6 +719,11 @@ int main(int argc, char **argv)
 #endif
 	poll_packet_thread_fn(&core_params_arr[rte_lcore_id()]);
 
+	/* Termination process */
+	DOCA_LOG_DBG("rte_eal_mp_wait_lcore");
+	rte_eal_mp_wait_lcore();
+
+	DOCA_LOG_DBG("mpiid_close_port");
 	RTE_ETH_FOREACH_DEV(port_id)
 	mpiid_close_port(port_id);
 	return 0;
