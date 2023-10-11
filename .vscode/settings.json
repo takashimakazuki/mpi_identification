@@ -37,7 +37,16 @@
         "mpiid_port.h": "c",
         "rte_timer.h": "c",
         "rte_lcore.h": "c",
-        "mpiid_timer_cb.h": "c"
+        "mpiid_timer_cb.h": "c",
+        "rte_ring.h": "c",
+        "compare": "c",
+        "functional": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "rte_per_lcore.h": "c",
+        "regex.h": "c",
+        "types.h": "c"
     },
     "C_Cpp.default.includePath": [
         "/opt/mellanox/doca/include",
