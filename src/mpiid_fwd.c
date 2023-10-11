@@ -1,5 +1,13 @@
-/* 
- * PMDスレッドから複数のworkerスレッドにデータを渡す際に，各workerスレッドごとにキューを使用する
+/*
+ * Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES, ALL RIGHTS RESERVED.
+ *
+ * This software product is a proprietary product of NVIDIA CORPORATION &
+ * AFFILIATES (the "Company") and all right, title, and interest in and to the
+ * software product, including all associated intellectual property rights, are
+ * and shall remain exclusively with the Company.
+ *
+ * This software product is governed by the End User License Agreement
+ * provided with the software product.
  *
  */
 
@@ -55,6 +63,8 @@
 #include "mpidpkt.h"
 #include "mpir_tags.h"
 #include "logger.h"
+#define RX_BURST_SIZE (4)
+
 
 DOCA_LOG_REGISTER(MPIID);
 
@@ -83,7 +93,6 @@ struct vnf_per_core_params
 	int core_id;
 	bool used;
 	struct rte_ring *ring; // スレッド間でのパケット受け渡しを行うRingキュー
-	struct rte_ring *ring_list[RTE_MAX_LCORE]; // スレッド0のみこの変数がセットされる
 };
 struct vnf_per_core_params core_params_arr[RTE_MAX_LCORE];
 
@@ -159,13 +168,13 @@ static struct rte_hash_parameters ut_params = {
 	.socket_id = 0,
 };
 
-struct rte_hash *handle;
+__thread struct rte_hash *handle;
 
 int create_mpi_flow_hash()
 {
 	handle = rte_hash_create(&ut_params);
 	if (handle == NULL) {
-		DOCA_LOG_ERR("failed to create rte_hash errno: %d", rte_errno);
+		DOCA_DLOG_ERR("failed to create rte_hash");
 		return -1;
 	}
 
@@ -175,7 +184,7 @@ int create_mpi_flow_hash()
 int32_t add_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
 {
 	if (handle == NULL) {
-		DOCA_LOG_ERR("rte_hash is not created");
+		DOCA_DLOG_ERR("rte_hash is not created");
 		return -1;
 	}
 
@@ -191,7 +200,7 @@ int32_t add_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t
 int32_t lookup_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
 {
 	if (handle == NULL) {
-		DOCA_LOG_ERR("rte_hash is not created");
+		DOCA_DLOG_ERR("rte_hash is not created");
 		return -1;
 	}
 
@@ -207,7 +216,7 @@ int32_t lookup_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint1
 int32_t delete_mpi_flow(uint32_t saddr, uint32_t daddr, uint16_t src_port, uint16_t dst_port)
 {
 	if (handle == NULL) {
-		DOCA_LOG_ERR("rte_hash is not created");
+		DOCA_DLOG_ERR("rte_hash is not created");
 		return -1;
 	}
 	struct tcp_flow_tuple4 tuple = {
@@ -224,7 +233,7 @@ regex_t regexBuffer;
 int compile_regex_pattern()
 {
 	const char pattern[] = "kvs_([0-9]+)_([0-9]+)_([0-9]+)_([a-z]+)";
-	if (regcomp(&regexBuffer, pattern, REG_EXTENDED) != 0) {
+	if (regcomp(&regexBuffer, pattern, 0) != 0) {
 		DOCA_LOG_ERR("regex compile failed");
 		return -1;
 	}
@@ -239,6 +248,7 @@ int destroy_regex_pattern()
 	return 0;
 }
 
+
 const char pattern[5] = "kvs_";
 
 void analyze_packets(struct mpiid_pkt_info *pinfo)
@@ -249,15 +259,18 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 	// TCPペイロードの先頭ポインタ
 	uint8_t *tcp_payload = pinfo->fmt.l7;
 
+	// MPICH kvm message
+	// regmatch_t patternMatch[1];
+	// int size = sizeof( patternMatch ) / sizeof( regmatch_t );
+	// if( regexec(&regexBuffer, (char *)&(tcp_payload[MPI_PKT_KVS_STR_OFFSET]), size, patternMatch, 0) == 0 )
+	// {
+	// 	add_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
+	// 	add_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
+	// }
+
 	if (iph->next_proto_id != IPPROTO_TCP) 
 	{
 		return;
-	}
-
-	// Check if this packet is mpi flow.
-	if (lookup_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port) > 0 || 
-		lookup_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port) > 0) {
-		goto mpi_flow;
 	}
 
 	// MPICH kvm message
@@ -269,18 +282,16 @@ void analyze_packets(struct mpiid_pkt_info *pinfo)
 		return;
 	}
 
-	// regmatch_t patternMatch[1];
-	// int size = sizeof( patternMatch ) / sizeof( regmatch_t );
-	// if( regexec(&regexBuffer, (char *)&(tcp_payload[MPI_PKT_KVS_STR_OFFSET]), 0, NULL, 0) == 0 )
-	// {
-	// 	add_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
-	// 	add_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port);
-	// } else {
-	// 	return;
-	// }
+	// Check if this packet is mpi flow. if the packet is not MPI, finish this function.
+	if (!(lookup_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port) > 0 || 
+		lookup_mpi_flow(iph->dst_addr, iph->src_addr, tcph->dst_port, tcph->src_port) > 0)) {
+		return;
+	}
 
 	// Following script is for MPI packet
-mpi_flow:
+
+	// Add a log message
+	
 	// MPI FIN packet?
 	if (tcph->fin == 1) {
 		delete_mpi_flow(iph->src_addr, iph->dst_addr, tcph->src_port, tcph->dst_port);
@@ -290,10 +301,11 @@ mpi_flow:
 		char ip_dst[INET_ADDRSTRLEN];
 		inet_ntop(AF_INET, &(iph->src_addr), ip_src, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, &(iph->dst_addr), ip_dst, INET_ADDRSTRLEN);
-		printf("[mpi flow finish packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [flows=%d]\n", 
-		ip_src, tcph->src_port, ip_dst, tcph->dst_port, rte_hash_count(handle));
+		printf("[mpi flow finish packet %s(%" PRIu16 ")->%s(%" PRIu16 ")] [len=%d] [flows=%d]\n", 
+		ip_src, tcph->th_sport, ip_dst, tcph->th_dport, pkt_len, rte_hash_count(handle));
 #endif
 	}
+
 	if (ntohs(tcph->dst_port) >= MPI_PORT_RANGE_START && ntohs(tcph->dst_port) <= MPI_PORT_RANGE_END)
 	{
 		// 型キャスト
@@ -382,22 +394,13 @@ mpi_flow:
 	}
 }
 
-// find a queue which qlen is the shortest
-struct rte_ring* find_best_queue(struct rte_ring** ring_list) {
-	struct rte_ring* best_q;
-	int min_cnt = RING_Q_COUNT;
-	int cnt = 0;
-	for (int i = 1; i < RTE_MAX_LCORE; i++)
-	{
-		if (!core_params_arr[i].used) continue;
-		
-		cnt = rte_ring_count(ring_list[i]);
-		if (cnt < min_cnt) {
-			best_q = ring_list[i];
-			min_cnt = cnt;
-		}
-	}
-	return best_q;
+/*this is very bad wasy to do it, need to set start time and use rte_*/
+static inline uint64_t mpiid_get_time_usec(void)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
 static void mpiid_process_offload(struct rte_mbuf *mbuf)
@@ -421,25 +424,14 @@ static void mpiid_process_offload(struct rte_mbuf *mbuf)
 
 static int poll_packet_thread_fn(void *p)
 {
-	int res;
-	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
+	struct rte_mbuf *mbufs[RX_BURST_SIZE];
 	uint16_t nb_rx, nb_tx, queue_id;
 	uint32_t port_id = 0, core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
 	int cur_tsc;
 	int prev_tsc;
-	struct rte_ring* best_q;
-
 	uint16_t nb_q;
 
-
-	// Flow watching initialization
-	res = create_mpi_flow_hash();
-	if (res != 0)
-	{
-		return -1;
-	}
-	
 	DOCA_LOG_INFO("core %u process queue %u start (poll_packet_thread_fn)", core_id, params->queues[port_id]);
 	while (!force_quit)
 	{
@@ -447,31 +439,12 @@ static int poll_packet_thread_fn(void *p)
 		for (port_id = 0; port_id < NUM_OF_PORTS; port_id++)
 		{
 			queue_id = params->queues[port_id];
-			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, VNF_RX_BURST_SIZE);
-			for (int i=0; i<nb_rx; i++)
-			{
-				rx_bytes += mbufs[i]->pkt_len;
-			}
+			nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, RX_BURST_SIZE);
 			
-			if (likely(nb_rx > 0))
-			{
-				best_q = find_best_queue(params->ring_list);
+			if (unlikely(nb_rx == 0))
+                continue;
 
-				nb_q = rte_ring_enqueue_burst(best_q, (void **)mbufs, nb_rx, NULL);
-				enqueued_pkts += nb_q;
-				for (int i=0; i<nb_q; i++)
-				{
-					enqueued_bytes += mbufs[i]->pkt_len;
-				}
-			}
-
-			// パケット送信，mbufの解放
 			nb_tx = rte_eth_tx_burst(port_id == 0 ? 1 : 0, queue_id, mbufs, nb_rx);
-			for (int i=0; i<nb_tx; i++)
-			{
-				tx_bytes += mbufs[i]->pkt_len;
-			}
-
 			if (nb_tx < nb_rx)
 			{
 				for (int i = nb_tx; i < nb_rx; i++)
@@ -480,26 +453,14 @@ static int poll_packet_thread_fn(void *p)
 				}
 			}
 		}
-		// 1sごとに出力
-		cur_tsc = rte_get_timer_cycles();
-		if ((cur_tsc - prev_tsc) > timer_resolution_cycles) {
-			rte_timer_manage();
-			prev_tsc = cur_tsc;
-		}
 	}
-
-
-	// Flow watching deconstruction
-	DOCA_LOG_INFO("rte_hash_free start");
-	rte_hash_free(handle);
-	DOCA_LOG_INFO("rte_hash_free end");
 
 	return 0;
 }
 
 static int worker_thread_fn(void *p)
 {
-	struct rte_mbuf *mbufs[VNF_RX_BURST_SIZE];
+	struct rte_mbuf *mbufs[RX_BURST_SIZE];
 	uint16_t j, nb_rx;
 	uint32_t core_id = rte_lcore_id();
 	struct vnf_per_core_params *params = (struct vnf_per_core_params *)p;
@@ -509,10 +470,10 @@ static int worker_thread_fn(void *p)
 
 	// MPIログ出力初期化処理
 	init_mpilog_buf();
-
+	
 	while (!force_quit)
 	{
-		nb_rx = rte_ring_dequeue_burst(params->ring, (void *)mbufs, VNF_RX_BURST_SIZE, NULL);
+		nb_rx = rte_ring_mc_dequeue_burst(params->ring, (void *)mbufs, RX_BURST_SIZE, NULL);
 
 		processed_pkts += nb_rx;
 		for (j = 0; j < nb_rx; j++)
@@ -532,7 +493,6 @@ static int worker_thread_fn(void *p)
 
 	// 終了処理
 	flush_mpilog_buf(core_id);
-	DOCA_LOG_DBG("%s end", __func__);
 	return 0;
 }
 
@@ -615,7 +575,7 @@ mpiid_info_parse_args(int argc, char **argv)
 }
 
 static int
-adjust_queue_by_fwd(uint16_t nb_queues, struct rte_ring **ring_list)
+adjust_queue_by_fwd(uint16_t nb_queues, struct rte_ring *ring)
 {
 	int i, core_idx = 0;
 
@@ -630,16 +590,53 @@ adjust_queue_by_fwd(uint16_t nb_queues, struct rte_ring **ring_list)
 			core_params_arr[core_idx].queues[1] = core_idx;
 			core_params_arr[core_idx].core_id = i;
 			core_params_arr[core_idx].used = true;
-
-			/* thread0では.ring_rist．thread1~thread7では.ringを用いる */
-			core_params_arr[0].ring_list[i] = ring_list[i];
-			core_params_arr[core_idx].ring = ring_list[i];
+			core_params_arr[core_idx].ring = ring;
 			core_idx++;
 		}
 	}
 	if (nb_queues > core_idx)
 		nb_queues = core_idx;
 	return nb_queues;
+}
+
+void printPacketTypeEnum()
+{
+	DOCA_LOG_DBG("+=====================================+");
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGER_SEND: %d", MPIDI_CH3_PKT_EAGER_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGERSHORT_SEND: %d", MPIDI_CH3_PKT_EAGERSHORT_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_EAGER_SYNC_SEND: %d", MPIDI_CH3_PKT_EAGER_SYNC_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_READY_SEND: %d", MPIDI_CH3_PKT_READY_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_REQ_TO_SEND: %d", MPIDI_CH3_PKT_RNDV_REQ_TO_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_CLR_TO_SEND: %d", MPIDI_CH3_PKT_RNDV_CLR_TO_SEND);
+	DOCA_LOG_DBG("MPIDI_CH3_PKT_RNDV_SEND: %d", MPIDI_CH3_PKT_RNDV_SEND);
+
+	DOCA_LOG_DBG("sizeof enum MPIDI_CH3_Pkt_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_send_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_eagershort_send_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_eagershort_send_t));
+	DOCA_LOG_DBG("sizeof MPIDI_CH3_Pkt_type_t: %ld bytes", sizeof(MPIDI_CH3_Pkt_type_t));
+	DOCA_LOG_DBG("sizeof MPIDI_Message_match: %ld bytes", sizeof(MPIDI_Message_match));
+	DOCA_LOG_DBG("sizeof   - MPIDI_Message_match_parts_t: %ld bytes", sizeof(MPIDI_Message_match_parts_t));
+	DOCA_LOG_DBG("sizeof     - int32_t tag: %ld bytes", sizeof(int32_t));
+	DOCA_LOG_DBG("sizeof     - MPIDI_Rank_t rank: %ld bytes", sizeof(MPIDI_Rank_t));
+	DOCA_LOG_DBG("sizeof     - MPIR_Context_id_t context_id: %ld bytes", sizeof(MPIR_Context_id_t));
+	DOCA_LOG_DBG("sizeof   - uintptr_t: %ld bytes", sizeof(uintptr_t));
+	DOCA_LOG_DBG("sizeof MPI_Request: %ld bytes", sizeof(MPI_Request));
+	DOCA_LOG_DBG("sizeof intptr_t: %ld bytes", sizeof(intptr_t));
+	DOCA_LOG_DBG("+=====================================+");
+}
+
+// Ringキューの作成
+// mainスレッドは取得したパケットを全てこのRingキューにエンキューする
+// workerスレッドはRingキューからパケットを取り出してログ抽出処理を行う
+struct rte_ring *create_ring()
+{
+	struct rte_ring *ring;
+	ring = rte_ring_create("wk_ring0", RING_Q_COUNT, rte_socket_id(), RING_F_SP_ENQ);
+	if (ring == NULL)
+	{
+		rte_exit(EXIT_FAILURE, "Cannot create rx/tx ring\n");
+	}
+	return ring;
 }
 
 
@@ -650,6 +647,7 @@ int main(int argc, char **argv)
 	uint32_t nb_queues, nb_ports;
 	uint16_t port_id;
 	struct mpiid_port_cfg port_cfg = {0};
+	struct rte_ring *ring;
 
 	ret = doca_log_create_file_backend(stdout, &stdout_logger);
 	if (ret != DOCA_SUCCESS)
@@ -684,41 +682,28 @@ int main(int argc, char **argv)
 		nb_queues = nr_queues;
 
 	// スレッド間でのパケット受け渡し用のRing作成
-	// Thread1 ~ Thread(N-1)それぞれに対応するRing Queue
-    struct rte_ring *ring_list[nb_queues];
-    for (int i = 1; i < nb_queues; i++)
-    {
-		char ring_name[64];
-        snprintf(ring_name, sizeof(ring_name), "thread_queue%u", i);
-
-		ring_list[i] = rte_ring_create(ring_name, RING_Q_COUNT, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-		if (ring_list[i] == NULL) {
-			printf("failed to create rte_ring errno: %d\n", rte_errno);
-            rte_exit(EXIT_FAILURE, "Failed to create ring for thread %u\n", i);
-        }
-    }
-	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues, ring_list);
+	ring = create_ring();
+	port_cfg.nb_queues = adjust_queue_by_fwd(nb_queues, ring);
 	port_cfg.nb_desc = nr_desc;
-
-	/* [measurement] init RTE timer library */
-	uint64_t hz;
-	rte_timer_subsystem_init();
-	hz = rte_get_timer_hz();
-	timer_resolution_cycles = hz * 1; /* around 1s */
-    for (int i = 0; i < nb_queues; i++)
-	{
-		rte_timer_init(&timers[i]);
-		rte_timer_reset(&timers[i], hz, PERIODICAL, i, (rte_timer_cb_t)timer_cb, ring_list[i]);
-	}
-
 	RTE_ETH_FOREACH_DEV(port_id)
 	{
 		port_cfg.port_id = port_id;
 		mpiid_start_dpdk_port(&port_cfg);
 	}
 
+	/* [measurement] init RTE timer library */
+	uint64_t hz;
+	rte_timer_subsystem_init();
+	hz = rte_get_timer_hz();
+	timer_resolution_cycles = hz * 1; /* around 1s */
+    // for (int i = 0; i < nb_queues; i++)
+	// {
+	// 	rte_timer_init(&timers[i]);
+	// 	rte_timer_reset(&timers[i], hz, PERIODICAL, i, (rte_timer_cb_t)timer_cb, ring);
+	// }
 	compile_regex_pattern();
 
+	// グローバル変数vnfの設定
 	for (i = 0; i < RTE_MAX_LCORE; i++)
 	{
 		if (!core_params_arr[i].used)
@@ -734,12 +719,14 @@ int main(int argc, char **argv)
 			core_params_arr[i].core_id);
 	}
 
+#ifdef DEBUG
+	printPacketTypeEnum();
+#endif
 	poll_packet_thread_fn(&core_params_arr[rte_lcore_id()]);
 
 	/* Termination process */
-	DOCA_LOG_DBG("rte_eal_mp_wait_lcore start");
+	DOCA_LOG_DBG("rte_eal_mp_wait_lcore");
 	rte_eal_mp_wait_lcore();
-	DOCA_LOG_DBG("rte_eal_mp_wait_lcore end");
 
 	destroy_regex_pattern();
 

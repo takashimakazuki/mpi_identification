@@ -81,3 +81,13 @@ multiq_sources = [
 ]
 executable('mpiid_multiq', multiq_sources, dependencies : app_dependencies, include_directories : inc_dir, install: false)
 
+
+fwd_sources = [
+	'mpiid_fwd.c',
+	'mpiid_pkt.c',
+	'mpiid_port.c',
+	'logger.c',
+	'./../common/src/flow_offload.c',
+	'./../common/src/utils.c',
+]
+executable('mpiid_fwd', fwd_sources, dependencies : app_dependencies, include_directories : inc_dir, install: false)
